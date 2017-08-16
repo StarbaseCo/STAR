@@ -1,0 +1,38 @@
+{
+  "name": "starbase-contracts",
+  "version": "0.1.0",
+  "description": "Smart contracts of Starbase",
+  "main": "truffle.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "testrpc $NODE_DEBUG_OPTION> /dev/null & truffle test ; RETVAL=$? ; JOBS=`jobs -p` ; if [ -n \"$JOBS\" ]; then kill $JOBS; fi ; exit $RETVAL"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StarbaseCo/StarbaseContracts.git"
+  },
+  "author": "Starbase PTE LTD",
+  "license": "UNLICENSED",
+  "bugs": {
+    "url": "https://github.com/StarbaseCo/StarbaseContracts/issues"
+  },
+  "homepage": "https://github.com/StarbaseCo/StarbaseContracts#readme",
+  "dependencies": {
+    "config": "^1.26.2"
+  },
+  "devDependencies": {
+    "babel-polyfill": "^6.23.0",
+    "babel-preset-es2015": "^6.24.0",
+    "babel-preset-es2017": "^6.22.0",
+    "babel-register": "^6.24.1",
+    "ethereumjs-testrpc": "^4.0.1",
+    "moment": "^2.18.1",
+    "solc": "^0.4.15",
+    "truffle": "^3.4.8",
+    "truffle-config": "^1.0.0",
+    "truffle-expect": "0.0.3",
+    "zeppelin-solidity": "^1.2.0"
+  }
+}
