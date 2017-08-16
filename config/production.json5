@@ -1,0 +1,9 @@
+{
+  Ethereum: {
+    address: {
+      fundsWorkshop: '',  // TODO
+      company: '',        // TODO
+      founder: '0x154c29bcd28ed52bd82c0e6754a1d8d0e87fc58a' // for Mainnet
+    }
+  }
+}

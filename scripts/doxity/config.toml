@@ -1,0 +1,15 @@
+linkPrefix = ""
+name = "starbase-contracts"
+license = "UNLICENSED"
+version = "0.1.0"
+description = "Smart contracts of Starbase"
+homepage = "https://github.com/StarbaseCo/StarbaseContracts#readme"
+author = "Starbase PTE LTD"
+buildTime = 2017-08-15T22:21:43.990Z
+target = "scripts/doxity"
+src = "contracts/*"
+dir = "pages/docs"
+source = "https://github.com/DigixGlobal/doxity-gatsby-starter-project/archive/a4886b7a7a04c018ac04fed3125d7d4785e74bed.tar.gz"
+out = "docs"
+
+[interaction]

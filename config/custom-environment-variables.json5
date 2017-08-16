@@ -1,0 +1,7 @@
+{
+  Ethereum: {
+    address: {
+      founder: 'ETH_FOUNDER_ADDR'
+    }
+  }
+}
