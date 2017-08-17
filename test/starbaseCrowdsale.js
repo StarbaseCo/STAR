@@ -773,7 +773,7 @@ contract('StarbaseCrowdsale', accounts => {
 
   describe('crowdsale finishes automatically', () => {
     beforeEach('set up', async () => {
-      await cs.updateCnyEthRate(66829400)
+      await cs.updateCnyEthRate(60000000)
     })
 
     it('halts crowdsale purchases when the cap reaches over 66M CNY', async () => {
@@ -790,11 +790,11 @@ contract('StarbaseCrowdsale', accounts => {
       const purchase1Balance = await web3.eth.getBalance(purchaser1)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
 
-      assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 66829400)
+      assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 60000000)
 
       const purchase = await cs.crowdsalePurchases(0)
       assert.equal(purchase[0].toString(), purchaser1)
-      assert.equal(purchase[1].toNumber(), 66829400)
+      assert.equal(purchase[1].toNumber(), 60000000)
 
       // Should have the difference back. Purchased with 1 eth so the balance post purchase should be approximate to the pre purchase balance give or take 1eth.
       assert.approximately(await web3.eth.getBalance(purchaser1).toNumber(), purchase1Balance.toNumber(), 1e+18)

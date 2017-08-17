@@ -34,7 +34,7 @@ contract StarbaseCrowdsale {
     uint256 constant public crowdsaleTokenAmount = 125000000e18;
     uint256 constant public earlyPurchaseTokenAmount = 50000000e18;
     uint256 constant public MIN_INVESTMENT = 1; // min is 1 Wei
-    uint256 constant public MAX_CROWDSALE_CAP = 66829400; // approximately 10M USD
+    uint256 constant public MAX_CROWDSALE_CAP = 60000000; // approximately 9M USD for the crowdsale(CS). 1M (by EP) + 9M (by CS) = 10M (Total)
     string public constant PURCHASE_AMOUNT_UNIT = 'CNY';  // Chinese Yuan
 
     /**
