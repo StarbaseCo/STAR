@@ -4,6 +4,17 @@
       fundsWorkshop: '',  // TODO
       company: '',        // TODO
       founder: '0x154c29bcd28ed52bd82c0e6754a1d8d0e87fc58a' // for Mainnet
+    },
+    presale: {
+      wallet: {
+        owners: [
+          '0xf8255327e386f3dda93bff1663f46658ba6697b2',
+          '0x1ec77f3d725b5977c344aff9f1396393de9ff072',
+          '0xc2cf8aabc5ae544d7afc6ee12730c3bcaf128c54'
+        ],
+        requiredSigns: 2,
+        initialMaxCap: 0  // can be updated by an owner later
+      }
     }
   }
 }
