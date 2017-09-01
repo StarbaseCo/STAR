@@ -40,7 +40,7 @@ contract('StarbaseMarketingCampaign', accounts => {
     describe('new contributor', () => {
       it('does NOT let contributors add themselves', async () => {
         try {
-          await mkgCampaign.addRewardforNewContributor.sendTransaction(contributor1, 20000, { from: contributor1 });
+          await mkgCampaign.addRewardforNewContributor.sendTransaction(contributor1, 20000, 'bcm-xda98sdf', { from: contributor1 });
         } catch (error) {
           utils.ensuresException(error)
         }
@@ -50,12 +50,28 @@ contract('StarbaseMarketingCampaign', accounts => {
         assert.equal(contributorsNumber, 0)
       })
 
-      it('adds contributors with their Star reward amount', async () => {
-        await mkgCampaign.addRewardforNewContributor(contributor1, 200);
-        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor1)
+      it('does NOT double add a contribution', async () => {
+        await mkgCampaign.addRewardforNewContributor(contributor1, 200, 'bcm-xda98sdf');
 
-        assert.equal(parseInt(contributor1Rewards[0]), 200) // number reward tokens
-        assert.equal(parseInt(contributor1Rewards[1]), 0) // number of tokens transferred to contributor
+        try {
+          await mkgCampaign.addRewardforNewContributor(contributor1, 20000, 'bcm-xda98sdf');
+          assert.fail()
+        } catch (error) {
+          utils.ensuresException(error)
+        }
+
+        const contributorsNumber = await mkgCampaign.numberOfContributors.call()
+
+        assert.equal(contributorsNumber, 1)
+      })
+
+      it('adds contributors with their Star reward amount', async () => {
+        await mkgCampaign.addRewardforNewContributor(contributor1, 200, 'bcm-xda98sdf');
+        const [ rewardTokens, transferredRewardTokens, hasId ] = await mkgCampaign.getContributorInfo(contributor1, 'bcm-xda98sdf')
+
+        assert.equal(parseInt(rewardTokens), 200) // number reward tokens
+        assert.equal(parseInt(transferredRewardTokens), 0) // number of tokens transferred to contributor
+        assert.equal(hasId, true) // contribution id is set
 
         const contributorsNumber = await mkgCampaign.numberOfContributors.call()
 
@@ -63,22 +79,22 @@ contract('StarbaseMarketingCampaign', accounts => {
       })
 
       it("logs NewContributor event", async () => {
-        const txObject = await mkgCampaign.addRewardforNewContributor(contributor1, 200);
+        const { logs } = await mkgCampaign.addRewardforNewContributor(contributor1, 200, 'bcm-xda98sdf');
 
-        assert.strictEqual(txObject.logs.length, 1, 'should have received 1 event')
+        assert.strictEqual(logs.length, 1, 'should have received 1 event')
 
-        assert.strictEqual(txObject.logs[0].args.contributorAddress, contributor1, "should be accounts[1] address")
-        assert.strictEqual(txObject.logs[0].args.tokenCount.toNumber(), 200, "should be 200")
+        assert.strictEqual(logs[0].args.contributorAddress, contributor1, "should be accounts[1] address")
+        assert.strictEqual(logs[0].args.tokenCount.toNumber(), 200, "should be 200")
       })
 
       it('stores number of contributors to date', async () => {
-        await mkgCampaign.addRewardforNewContributor(contributor1, 200);
+        await mkgCampaign.addRewardforNewContributor(contributor1, 200, 'bcm-xda98sdf');
 
         let contributorsNumber = await mkgCampaign.numberOfContributors.call()
 
         assert.equal(contributorsNumber, 1)
 
-        await mkgCampaign.addRewardforNewContributor(contributor2, 50);
+        await mkgCampaign.addRewardforNewContributor(contributor2, 50, 'bcm-xda98sdf');
 
         contributorsNumber = await mkgCampaign.numberOfContributors.call()
 
@@ -87,38 +103,54 @@ contract('StarbaseMarketingCampaign', accounts => {
     })
 
     describe('updating contributor', () => {
-      beforeEach(async () =>{
-        await mkgCampaign.addRewardforNewContributor(contributor1, 200);
+      beforeEach(async () => {
+        await mkgCampaign.addRewardforNewContributor(contributor1, 200, 'bcm-xda98sdf');
       })
 
       it('does NOT allow contributor to update their own reward', async () => {
         try {
-          await mkgCampaign.updateRewardForContributor.sendTransaction(contributor1, 100, { from: contributor1 });
+          await mkgCampaign.updateRewardForContributor.sendTransaction(contributor1, 100, 'bcm-xda98sdf', { from: contributor1 });
         } catch (error) {
           utils.ensuresException(error)
         }
 
-        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor1)
+        const [ rewardTokens, transferredRewardTokens, hasId ] = await mkgCampaign.getContributorInfo(contributor1, 'bcm-xda98sdf')
 
-        assert.equal(parseInt(contributor1Rewards[0]), 200) // number reward tokens
-        assert.equal(parseInt(contributor1Rewards[1]), 0) // number of tokens transferred to contributor
+        assert.equal(parseInt(rewardTokens), 200) // number reward tokens
+        assert.equal(parseInt(transferredRewardTokens), 0) // number of tokens transferred to contributor
+        assert.equal(hasId, true) // contribution id is set
       })
 
       it('updates a contributor with their reward', async () => {
-        await mkgCampaign.updateRewardForContributor(contributor1, 100);
-        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor1)
+        await mkgCampaign.updateRewardForContributor(contributor1, 100, 'bcm-xda98sdf');
+        const [ rewardTokens, transferredRewardTokens, hasId ] = await mkgCampaign.getContributorInfo(contributor1, 'bcm-xda98sdf')
 
-        assert.equal(parseInt(contributor1Rewards[0]), 300) // number reward tokens
-        assert.equal(parseInt(contributor1Rewards[1]), 0) // number of tokens transferred to contributor
+        assert.equal(parseInt(rewardTokens), 300) // number reward tokens
+        assert.equal(parseInt(transferredRewardTokens), 0) // number of tokens transferred to contributor
+        assert.equal(hasId, true) // contribution id is set
+      })
+
+      it('allows for reward updates even when contributor has transferred all their reward tokens', async () => {
+        token = await newToken(crowdsale.address)
+        await mkgCampaign.setup(token.address)
+        await mkgCampaign.withdrawRewardedTokens.sendTransaction(contributor1, 200, { from: contributor1 });
+
+        await mkgCampaign.updateRewardForContributor(contributor1, 100, 'bcm-xda98sdf');
+
+        const [ rewardTokens, transferredRewardTokens, hasId ] = await mkgCampaign.getContributorInfo(contributor1, 'bcm-xda98sdf')
+
+        assert.equal(parseInt(rewardTokens), 100) // number reward tokens
+        assert.equal(parseInt(transferredRewardTokens), 200) // number of tokens transferred to contributor
+        assert.equal(hasId, true) // contribution id is set
       })
 
       it("logs UpdateContributorsTokens event", async () => {
-        const txObject = await mkgCampaign.updateRewardForContributor(contributor1, 200);
+        const { logs } = await mkgCampaign.updateRewardForContributor(contributor1, 200, 'bcm-xda98sdf');
 
-        assert.strictEqual(txObject.logs.length, 1, 'should have received 1 event')
+        assert.strictEqual(logs.length, 1, 'should have received 1 event')
 
-        assert.strictEqual(txObject.logs[0].args.contributorAddress, contributor1, "should be accounts[1] address")
-        assert.strictEqual(txObject.logs[0].args.tokenCount.toNumber(), 200, "should be 200")
+        assert.strictEqual(logs[0].args.contributorAddress, contributor1, "should be accounts[1] address")
+        assert.strictEqual(logs[0].args.tokenCount.toNumber(), 200, "should be 200")
       })
     })
 
@@ -126,7 +158,7 @@ contract('StarbaseMarketingCampaign', accounts => {
       beforeEach(async () => {
         token = await newToken(crowdsale.address)
         await mkgCampaign.setup(token.address)
-        await mkgCampaign.addRewardforNewContributor(contributor1, 200);
+        await mkgCampaign.addRewardforNewContributor(contributor1, 200, 'bcm-xda98sdf');
       })
 
       it('does NOT allow to withdraw more tokens than they were awarded', async () => {
@@ -136,14 +168,14 @@ contract('StarbaseMarketingCampaign', accounts => {
           utils.ensuresException(error)
         }
 
-        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor1)
+        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor1, 'bcm-xda98sdf')
 
         assert.equal(parseInt(contributor1Rewards[0]), 200) // number reward tokens
         assert.equal(parseInt(contributor1Rewards[1]), 0) // number of tokens transferred to contributor
       })
 
       it('does NOT allow to withdraw if their reward is 0 tokens', async () => {
-        await mkgCampaign.addRewardforNewContributor(contributor2, 0);
+        await mkgCampaign.addRewardforNewContributor(contributor2, 0, 'bcm-xda98sdf');
 
         try {
           await mkgCampaign.withdrawRewardedTokens.sendTransaction(contributor2, 0, { from: contributor2 });
@@ -151,10 +183,23 @@ contract('StarbaseMarketingCampaign', accounts => {
           utils.ensuresException(error)
         }
 
-        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor2)
+        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor2, 'bcm-xda98sdf')
 
         assert.equal(parseInt(contributor1Rewards[0]), 0) // number reward tokens
         assert.equal(parseInt(contributor1Rewards[1]), 0) // number of tokens transferred to contributor
+      })
+
+      it('does NOT allow to withdraw by an account who is neither owner nor the contributor', async () => {
+        try {
+          await mkgCampaign.withdrawRewardedTokens(contributor1, 200, { from: contributor2 })
+          assert.fail()
+        } catch (error) {
+          utils.ensuresException(error)
+        }
+
+        await mkgCampaign.withdrawRewardedTokens(contributor1, 100, { from: contributor1 })
+
+        assert.equal((await token.balanceOf(contributor1)).toNumber(), 100)
       })
 
       it('should not have a lock up term for marketing supporters', async () => {
@@ -169,7 +214,7 @@ contract('StarbaseMarketingCampaign', accounts => {
 
       it('withdraws token who have reward tokens', async () => {
         await mkgCampaign.withdrawRewardedTokens(contributor1, 200);
-        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor1)
+        const contributor1Rewards = await mkgCampaign.getContributorInfo(contributor1, 'bcm-xda98sdf')
 
         assert.equal(parseInt(contributor1Rewards[0]), 0) // number reward tokens
         assert.equal(parseInt(contributor1Rewards[1]), 200) // number of tokens transferred to contributor

@@ -1,9 +1,10 @@
 {
   Ethereum: {
     address: {
-      fundsWorkshop: '',  // TODO
-      company: '',        // TODO
-      founder: '0x154c29bcd28ed52bd82c0e6754a1d8d0e87fc58a' // for Mainnet
+      starbaseEarlyPurchaseAmendment: '0x859e7E76cAeDe3b642FC84862809f60c055cb731',
+      company: '0x6C9e70d6682eA36fF340153D574b2C523671B107',
+      crowdsaleWorkshop: '0x06f6252D7E576828C497C10eAc44C892d3824B8d',
+      marketingCampaignWorkshop: '0x2133305cDa352A21243f1112B4a5dbB43Bf2c52C'
     },
     presale: {
       wallet: {

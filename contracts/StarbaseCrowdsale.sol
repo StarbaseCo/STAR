@@ -1,6 +1,7 @@
 pragma solidity ^0.4.13;
 
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
+import 'zeppelin-solidity/contracts/ownership/Ownable.sol';
 
 import './AbstractStarbaseToken.sol';
 import './StarbaseEarlyPurchaseAmendment.sol';
@@ -9,13 +10,13 @@ import './StarbaseEarlyPurchaseAmendment.sol';
  * @title Crowdsale contract - Starbase crowdsale to create STAR.
  * @author Starbase PTE. LTD. - <info@starbase.co>
  */
-contract StarbaseCrowdsale {
+contract StarbaseCrowdsale is Ownable {
     /*
      *  Events
      */
     event CrowdsaleEnded(uint256 endedAt);
-    event StarBasePurchasedWithEth(address purchaser, uint256 amount, uint256 cnyEthRate, uint256 bonusTokensPercentage);
-    event StarBasePurchasedOffChain(address purchaser, uint256 amount, uint256 cnyBtcRate, uint256 bonusTokensPercentage, string data);
+    event StarBasePurchasedWithEth(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyEthRate, uint256 bonusTokensPercentage);
+    event StarBasePurchasedOffChain(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyBtcRate, uint256 bonusTokensPercentage, string data);
     event CnyEthRateUpdated(uint256 cnyEthRate);
     event CnyBtcRateUpdated(uint256 cnyBtcRate);
     event QualifiedPartnerAddress(address qualifiedPartner);
@@ -42,16 +43,23 @@ contract StarbaseCrowdsale {
      */
     struct CrowdsalePurchase {
         address purchaser;
-        uint256 amount;        // CNY based amount
+        uint256 amount;        // CNY based amount with bonus
+        uint256 rawAmount;     // CNY based amount no bonus
         uint256 purchasedAt;   // timestamp
         string data;           // additional data (e.g. Tx ID of Bitcoin)
         uint256 bonus;
     }
 
+    struct QualifiedPartners {
+        uint256 amountCap;
+        uint256 amountRaised;
+        bool    bonaFide;
+        uint256 commissionFeePercentage; // example 5 will calculate the percentage as 5%
+    }
+
     /**
      *  Storage
      */
-    address public owner;
     address public workshop; // holds undelivered STARs
 
     uint public numOfDeliveredCrowdsalePurchases = 0;  // index to keep the number of crowdsale purchases have already been processed by `deliverPurchasedTokens`
@@ -59,7 +67,7 @@ contract StarbaseCrowdsale {
     uint256 public numOfLoadedEarlyPurchases = 0; // index to keep the number of early purchases that have already been loaded by `loadEarlyPurchases`
 
     address[] public earlyPurchasers;
-    address qualifiedPartner;
+    mapping (address => QualifiedPartners) public qualifiedPartners;
     mapping (address => uint256) public earlyPurchasedAmountBy; // early purchased amount in CNY per purchasers' address
     bool public earlyPurchasesLoaded = false;  // returns whether all early purchases are loaded into this contract
 
@@ -94,12 +102,6 @@ contract StarbaseCrowdsale {
     /**
      *  Modifiers
      */
-    modifier onlyOwner() {
-        // Only owner is allowed to call this action.
-        assert(msg.sender == owner);
-        _;
-    }
-
     modifier minInvestment() {
         // User has to send at least the ether value of one token.
         assert(msg.value >= MIN_INVESTMENT);
@@ -158,7 +160,7 @@ contract StarbaseCrowdsale {
      * @dev Fallback accepts payment for Star tokens with Eth
      */
     function() payable {
-        purchaseWithEth();
+        redirectToPurchase();
     }
 
     /**
@@ -184,13 +186,13 @@ contract StarbaseCrowdsale {
     /**
      * @dev Allows owner to record a purchase made outside of Ethereum blockchain
      * @param purchaser Address of a purchaser
-     * @param convertedAmount Purchased amount in CNY
+     * @param rawAmount Purchased amount in CNY
      * @param purchasedAt Timestamp at the purchase made
      * @param data Identifier as an evidence of the purchase (e.g. btc:1xyzxyz)
      */
     function recordOffchainPurchase(
         address purchaser,
-        uint256 convertedAmount,
+        uint256 rawAmount,
         uint256 purchasedAt,
         string data
     )
@@ -206,9 +208,9 @@ contract StarbaseCrowdsale {
         }
 
         uint256 bonusTier = getBonusTier();
-        uint amount = recordPurchase(purchaser, convertedAmount, purchasedAt, data, bonusTier);
+        uint amount = recordPurchase(purchaser, rawAmount, purchasedAt, data, bonusTier);
 
-        StarBasePurchasedOffChain(purchaser, amount, cnyBtcRate, bonusTier, data);
+        StarBasePurchasedOffChain(purchaser, amount, rawAmount, cnyBtcRate, bonusTier, data);
         return true;
     }
 
@@ -226,22 +228,11 @@ contract StarbaseCrowdsale {
     }
 
     /**
-     * @dev Transfers raised funds to owner's wallet address in case of emergency such as attacks.
-     */
-    function executeEmergencyCall()
-        external
-        onlyOwner
-        hasBalance
-    {
-        owner.transfer(this.balance);
-    }
-
-    /**
      * @dev Update the CNY/ETH rate to record purchases in CNY
      */
     function updateCnyEthRate(uint256 rate)
         external
-        onlyOwner
+        onlyFundraiser
         returns (bool)
     {
         cnyEthRate = rate;
@@ -254,7 +245,7 @@ contract StarbaseCrowdsale {
      */
     function updateCnyBtcRate(uint256 rate)
         external
-        onlyOwner
+        onlyFundraiser
         returns (bool)
     {
         cnyBtcRate = rate;
@@ -292,6 +283,7 @@ contract StarbaseCrowdsale {
         assert(purchase.purchaser != 0 && purchase.amount != 0);
 
         crowdsalePurchases[purchaseIdx].amount = 0;
+        crowdsalePurchases[purchaseIdx].rawAmount = 0;
         invalidatedOrigPurchases[purchaseIdx] = purchase;
         PurchaseInvalidated(purchaseIdx);
         return true;
@@ -302,6 +294,7 @@ contract StarbaseCrowdsale {
      * @param purchaseIdx Index number of the crowdsalePurchases to invalidate
      * @param purchaser Address of the buyer
      * @param amount Purchased tokens as per the CNY rate used
+     * @param rawAmount Purchased tokens as per the CNY rate used without the bonus
      * @param purchasedAt Timestamp at the purchase made
      * @param data Identifier as an evidence of the purchase (e.g. btc:1xyzxyz)
      * @param bonus bonus milestones of the purchase
@@ -310,6 +303,7 @@ contract StarbaseCrowdsale {
         uint256 purchaseIdx,
         address purchaser,
         uint256 amount,
+        uint256 rawAmount,
         uint256 purchasedAt,
         string data,
         uint256 bonus
@@ -325,7 +319,7 @@ contract StarbaseCrowdsale {
 
         amendedOrigPurchases[purchaseIdx] = purchase;
         crowdsalePurchases[purchaseIdx] =
-            CrowdsalePurchase(purchaser, amount, purchasedAt, data, bonus);
+            CrowdsalePurchase(purchaser, amount, rawAmount, purchasedAt, data, bonus);
         PurchaseAmended(purchaseIdx);
         return true;
     }
@@ -442,6 +436,42 @@ contract StarbaseCrowdsale {
     }
 
     /**
+      * @dev Set qualified crowdsale partner i.e. Bitcoin Suisse address
+      * @param _qualifiedPartner Address of the qualified partner that can purchase during crowdsale
+      * @param _amountCap Ether value which partner is able to contribute
+      * @param _commissionFeePercentage Integer that represents the fee to pay qualified partner 5 is 5%
+      */
+    function setQualifiedPartner(address _qualifiedPartner, uint256 _amountCap, uint256 _commissionFeePercentage)
+        external
+        onlyOwner
+    {
+        assert(!qualifiedPartners[_qualifiedPartner].bonaFide);
+        qualifiedPartners[_qualifiedPartner].bonaFide = true;
+        qualifiedPartners[_qualifiedPartner].amountCap = _amountCap;
+        qualifiedPartners[_qualifiedPartner].commissionFeePercentage = _commissionFeePercentage;
+        QualifiedPartnerAddress(_qualifiedPartner);
+    }
+
+    /**
+     * @dev Remove address from qualified partners list.
+     * @param _qualifiedPartner Address to be removed from the list.
+     */
+    function unlistQualifiedPartner(address _qualifiedPartner) external onlyOwner {
+        assert(qualifiedPartners[_qualifiedPartner].bonaFide);
+        qualifiedPartners[_qualifiedPartner].bonaFide = false;
+    }
+
+    /**
+     * @dev Update whitelisted address amount allowed to raise during the presale.
+     * @param _qualifiedPartner Qualified Partner address to be updated.
+     * @param _amountCap Amount that the address is able to raise during the presale.
+     */
+    function updateQualifiedPartnerCapAmount(address _qualifiedPartner, uint256 _amountCap) external onlyOwner {
+        assert(qualifiedPartners[_qualifiedPartner].bonaFide);
+        qualifiedPartners[_qualifiedPartner].amountCap = _amountCap;
+    }
+
+    /**
      * Public functions
      */
 
@@ -450,14 +480,6 @@ contract StarbaseCrowdsale {
      */
     function isEnded() constant public returns (bool) {
         return (endedAt > 0 && endedAt <= now);
-    }
-
-    /**
-      * @dev Set qualified crowdsale partner i.e. Bitcoin Suisse address
-      */
-    function setQualifiedPartner(address _qualifiedPartner) public onlyOwner {
-        qualifiedPartner = _qualifiedPartner;
-        QualifiedPartnerAddress(qualifiedPartner);
     }
 
     /**
@@ -477,7 +499,16 @@ contract StarbaseCrowdsale {
     }
 
     /**
-     * @dev Returns total raised amount in CNY (includes EP)
+     * @dev Calculates total amount of tokens purchased without bonus conversion.
+     */
+    function totalAmountOfCrowdsalePurchasesWithoutBonus() constant public returns (uint256 amount) {
+        for (uint256 i; i < crowdsalePurchases.length; i++) {
+            amount = SafeMath.add(amount, crowdsalePurchases[i].rawAmount);
+        }
+    }
+
+    /**
+     * @dev Returns total raised amount in CNY (includes EP) and bonuses
      */
     function totalRaisedAmountInCny() constant public returns (uint256) {
         return SafeMath.add(totalAmountOfEarlyPurchases(), totalAmountOfCrowdsalePurchases());
@@ -499,15 +530,20 @@ contract StarbaseCrowdsale {
         rateIsSet(cnyEthRate)
         returns (bool)
     {
-        assert(qualifiedPartner != address(0));
-        assert(msg.sender == qualifiedPartner);
-        require(msg.value < 20 ether); // TODO found out the cap the qualified partner has
+        require(qualifiedPartners[msg.sender].bonaFide);
+        qualifiedPartners[msg.sender].amountRaised = SafeMath.add(msg.value, qualifiedPartners[msg.sender].amountRaised);
 
-        uint256 bonusTier = 30; // Pre purchasers get 30 percent bonus
-        uint256 convertedAmount = SafeMath.mul(msg.value, cnyEthRate) / 1e18;
-        uint amount = recordPurchase(msg.sender, convertedAmount, now, '', bonusTier);
+        assert(qualifiedPartners[msg.sender].amountRaised <= qualifiedPartners[msg.sender].amountCap);
 
-        StarBasePurchasedWithEth(msg.sender, amount, cnyEthRate, bonusTier);
+        uint256 bonusTier = 30; // Pre sale purchasers get 30 percent bonus
+        uint256 rawAmount = SafeMath.mul(msg.value, cnyEthRate) / 1e18;
+        uint amount = recordPurchase(msg.sender, rawAmount, now, '', bonusTier);
+
+        if (qualifiedPartners[msg.sender].commissionFeePercentage > 0) {
+            sendQualifiedPartnerCommissionFee(msg.sender, msg.value);
+        }
+
+        StarBasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate, bonusTier);
         return true;
     }
 
@@ -529,10 +565,10 @@ contract StarbaseCrowdsale {
 
         uint256 bonusTier = getBonusTier();
 
-        uint256 convertedAmount = SafeMath.mul(msg.value, cnyEthRate) / 1e18;
-        uint amount = recordPurchase(msg.sender, convertedAmount, now, '', bonusTier);
+        uint256 rawAmount = SafeMath.mul(msg.value, cnyEthRate) / 1e18;
+        uint amount = recordPurchase(msg.sender, rawAmount, now, '', bonusTier);
 
-        StarBasePurchasedWithEth(msg.sender, amount, cnyEthRate, bonusTier);
+        StarBasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate, bonusTier);
         return true;
     }
 
@@ -565,14 +601,14 @@ contract StarbaseCrowdsale {
     /**
      * @dev Abstract record of a purchase to Tokens
      * @param purchaser Address of the buyer
-     * @param convertedAmount Amount in CNY as per the CNY/ETH rate used
+     * @param rawAmount Amount in CNY as per the CNY/ETH rate used
      * @param timestamp Timestamp at the purchase made
      * @param data Identifier as an evidence of the purchase (e.g. btc:1xyzxyz)
      * @param bonusTier bonus milestones of the purchase
      */
     function recordPurchase(
         address purchaser,
-        uint256 convertedAmount,
+        uint256 rawAmount,
         uint256 timestamp,
         string data,
         uint256 bonusTier
@@ -580,21 +616,30 @@ contract StarbaseCrowdsale {
         internal
         returns(uint256 amount)
     {
-        assert(totalAmountOfCrowdsalePurchases() <= MAX_CROWDSALE_CAP);
+        amount = rawAmount; // amount to check reach of max cap. it does not care for bonus tokens here
 
-        uint256 covertedAmountwWithBonus = SafeMath.mul(convertedAmount, bonusTier) / 100;
-        amount = SafeMath.add(convertedAmount, covertedAmountwWithBonus);
-        uint256 crowdsaleTotalAmountAfterPurchase = SafeMath.add(totalAmountOfCrowdsalePurchases(), amount);
+        // presale transfers which occurs before the crowdsale ignores the crowdsale hard cap
+        if (block.number >= purchaseStartBlock) {
 
-        // check whether purchase goes over the cap and send the difference back to the purchaser.
-        if (crowdsaleTotalAmountAfterPurchase > MAX_CROWDSALE_CAP) {
-          uint256 difference = SafeMath.sub(crowdsaleTotalAmountAfterPurchase, MAX_CROWDSALE_CAP);
-          uint256 ethValueToReturn =  SafeMath.mul(difference, 1e18) / cnyEthRate;
-          purchaser.transfer(ethValueToReturn);
-          amount = SafeMath.sub(amount, difference);
+            assert(totalAmountOfCrowdsalePurchasesWithoutBonus() <= MAX_CROWDSALE_CAP);
+
+            uint256 crowdsaleTotalAmountAfterPurchase = SafeMath.add(totalAmountOfCrowdsalePurchasesWithoutBonus(), amount);
+
+            // check whether purchase goes over the cap and send the difference back to the purchaser.
+            if (crowdsaleTotalAmountAfterPurchase > MAX_CROWDSALE_CAP) {
+              uint256 difference = SafeMath.sub(crowdsaleTotalAmountAfterPurchase, MAX_CROWDSALE_CAP);
+              uint256 ethValueToReturn = SafeMath.mul(difference, 1e18) / cnyEthRate;
+              purchaser.transfer(ethValueToReturn);
+              amount = SafeMath.sub(amount, difference);
+              rawAmount = amount;
+            }
+
         }
 
-        CrowdsalePurchase memory purchase = CrowdsalePurchase(purchaser, amount, timestamp, data, bonusTier);
+        uint256 covertedAmountwWithBonus = SafeMath.mul(amount, bonusTier) / 100;
+        amount = SafeMath.add(amount, covertedAmountwWithBonus); // at this point amount bonus is calculated
+
+        CrowdsalePurchase memory purchase = CrowdsalePurchase(purchaser, amount, rawAmount, timestamp, data, bonusTier);
         crowdsalePurchases.push(purchase);
         return amount;
     }
@@ -629,6 +674,30 @@ contract StarbaseCrowdsale {
           uint256 numberOfDays = secondsSinceStartDate / DAY_IN_SECONDS;
 
           return SafeMath.sub(numberOfDays, 60);
+        }
+    }
+
+    /**
+     * @dev Fetchs Bonus tier percentage per bonus milestones
+     * @dev qualifiedPartner Address of partners that participated in pre sale
+     * @dev amountSent Value sent by qualified partner
+     */
+    function sendQualifiedPartnerCommissionFee(address qualifiedPartner, uint256 amountSent) internal {
+        //calculate the commission fee to send to qualified partner
+        uint256 commissionFeePercentageCalculationAmount = SafeMath.mul(amountSent, qualifiedPartners[qualifiedPartner].commissionFeePercentage) / 100;
+
+        // send commission fee amount
+        qualifiedPartner.transfer(commissionFeePercentageCalculationAmount);
+    }
+
+    /**
+     * @dev redirectToPurchase Redirect to adequate purchase function within the smart contract
+     */
+    function redirectToPurchase() internal {
+        if (block.number < purchaseStartBlock) {
+            purchaseAsQualifiedPartner();
+        } else {
+            purchaseWithEth();
         }
     }
 }

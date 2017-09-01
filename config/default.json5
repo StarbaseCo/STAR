@@ -2,6 +2,7 @@
   Ethereum: {
     // these addresses and private keys are just for debug
     address: {
+      starbaseEarlyPurchaseAmendment: null,
       company: '0xf36fde0a26401256f5857b718671343dbb81886c',                    // privKey: b0263eaff27ef2a58688429b1d973f6c1c1ea905779ec5e92bccea8c313db510
       crowdsaleWorkshop: '0x877228c54dacd6bd6e2694fd3384f991998d0285',          // privKey: af5ed380beb18b50b90bf2b87f4971353e5cc96a625d38352a4a33deed89a562
       marketingCampaignWorkshop: '0xd7bebfddbf9c85707202937917d655bf6be4404a'   // privKey: 3ba00726ace7eb7d9ab4acc6d7b11e810ef49f82eef4451b4f44e965ed7dffa1
