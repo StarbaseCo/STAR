@@ -1,6 +1,7 @@
 pragma solidity ^0.4.13;
 
 import 'zeppelin-solidity/contracts/math/SafeMath.sol';
+import 'zeppelin-solidity/contracts/ownership/Ownable.sol';
 
 import './AbstractStarbaseToken.sol';
 
@@ -8,7 +9,7 @@ import './AbstractStarbaseToken.sol';
  * @title Crowdsale contract - Starbase marketing campaign contract to reward supportors
  * @author Starbase PTE. LTD. - <info@starbase.co>
  */
-contract StarbaseMarketingCampaign {
+contract StarbaseMarketingCampaign is Ownable {
     /*
      *  Events
      */
@@ -27,12 +28,12 @@ contract StarbaseMarketingCampaign {
     struct Contributor {
         uint256 rewardTokens;
         uint256 transferredRewardTokens;
+        mapping (bytes32 => bool) contributions;  // example: keccak256(bcm-xda98sdf) => true
     }
 
     /**
      *  Storage
      */
-    address public owner;
     address public workshop;  // holds undelivered STARs
     address[] public contributors;
     mapping (address => Contributor) public contributor;
@@ -40,9 +41,9 @@ contract StarbaseMarketingCampaign {
     /**
      *  Modifiers
      */
-    modifier onlyOwner() {
-        // Only owner is allowed to do this action.
-        assert(msg.sender == owner);
+    modifier onlyOwnerOr(address _allowed) {
+        // Only owner or specified address are allowed to do this action.
+        assert(msg.sender == owner || msg.sender == _allowed);
         _;
     }
 
@@ -69,7 +70,10 @@ contract StarbaseMarketingCampaign {
      * @param contributorAddress The address of the contributor
      * @param tokensToTransfer Token number to withdraw
      */
-    function withdrawRewardedTokens (address contributorAddress, uint256 tokensToTransfer) external {
+    function withdrawRewardedTokens (address contributorAddress, uint256 tokensToTransfer)
+        external
+        onlyOwnerOr(contributorAddress)
+    {
         require(contributor[contributorAddress].rewardTokens > 0 && tokensToTransfer <= contributor[contributorAddress].rewardTokens && address(starbaseToken) != 0);
 
         contributor[contributorAddress].rewardTokens = SafeMath.sub(contributor[contributorAddress].rewardTokens, tokensToTransfer);
@@ -98,11 +102,24 @@ contract StarbaseMarketingCampaign {
      * @dev Include new contributor
      * @param contributorAddress A contributor's address
      * @param tokenCount number of tokens assigned to contributor on their inclusion
+     * @param contributionId Id of contribution from bounty app db
      */
-    function addRewardforNewContributor (address contributorAddress, uint256 tokenCount) external onlyOwner {
+    function addRewardforNewContributor
+        (
+            address contributorAddress,
+            uint256 tokenCount,
+            string contributionId
+        )
+            external
+            onlyOwner
+    {
+        bytes32 id = keccak256(contributionId);
+
+        require(!contributor[contributorAddress].contributions[id]);
         assert(contributor[contributorAddress].rewardTokens == 0 && contributor[contributorAddress].transferredRewardTokens == 0);
 
         contributor[contributorAddress].rewardTokens = tokenCount;
+        contributor[contributorAddress].contributions[id] = true;
         contributors.push(contributorAddress);
         NewContributor(contributorAddress, tokenCount);
     }
@@ -111,13 +128,16 @@ contract StarbaseMarketingCampaign {
      * @dev Updates contributors rewardTokens
      * @param contributorAddress A contributor's address
      * @param tokenCount number of tokens to update for the contributor
+     * @param contributionId Id of contribution from bounty app db
      */
-    function updateRewardForContributor (address contributorAddress, uint256 tokenCount)
+    function updateRewardForContributor (address contributorAddress, uint256 tokenCount, string contributionId)
         external
         onlyOwner
         returns (bool)
     {
-        assert(contributor[contributorAddress].rewardTokens > 0);
+        bytes32 id = keccak256(contributionId);
+
+        require(contributor[contributorAddress].contributions[id]);
 
         contributor[contributorAddress].rewardTokens = SafeMath.add(contributor[contributorAddress].rewardTokens, tokenCount);
         UpdateContributorsTokens(contributorAddress, tokenCount);
@@ -131,15 +151,19 @@ contract StarbaseMarketingCampaign {
     /**
      * @dev Informs about contributors rewardTokens and transferredRewardTokens status
      * @param contributorAddress A contributor's address
+     * @param contributionId Id of contribution from bounty app db
      */
-    function getContributorInfo(address contributorAddress)
+    function getContributorInfo(address contributorAddress, string contributionId)
       constant
       public
-      returns (uint256, uint256)
+      returns (uint256, uint256, bool)
     {
+        bytes32 id = keccak256(contributionId);
+
         return(
           contributor[contributorAddress].rewardTokens,
-          contributor[contributorAddress].transferredRewardTokens
+          contributor[contributorAddress].transferredRewardTokens,
+          contributor[contributorAddress].contributions[id]
         );
     }
 

@@ -26,8 +26,8 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     const token = await StarbaseToken.new(dummyAddr, cs.address, mkgCampaign.address)
     totalAmountOfEP = await cs.totalAmountOfEarlyPurchases()
 
-    await cs.updateCnyBtcRate(20000)
     await cs.setup(token.address, web3.eth.blockNumber)
+    await cs.updateCnyBtcRate(20000)
     await cs.recordOffchainPurchase(purchaser1, 0, utils.getBlockNow(), 'btc:xxx') // starts the crowdsale
     startDate = await cs.startDate()
   })
@@ -50,11 +50,11 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2400)
 
-    assert.isAtLeast(purchase[2].toNumber(), startDate)
-    assert.isAtMost(purchase[2].toNumber(), firstBonusSalesEnds)
+    assert.isAtLeast(purchase[3].toNumber(), startDate)
+    assert.isAtMost(purchase[3].toNumber(), firstBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 20)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 20)
   })
 
   it('lets STARs purchasers to receive 20% bonus tokens at the end of first bonus sales milestones (edge case)', async () => {
@@ -75,10 +75,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2400)
 
-    assert.isAtMost(purchase[2].toNumber(), firstBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), firstBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 20)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 20)
   })
 
   it('should give 15 % bonus tokens for purchasers of STARs btw the 8th and 21st day', async () => {
@@ -100,11 +100,11 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2300)
 
-    assert.isAtLeast(purchase[2].toNumber(), firstBonusSalesEnds)
-    assert.isAtMost(purchase[2].toNumber(), secondBonusSalesEnds)
+    assert.isAtLeast(purchase[3].toNumber(), firstBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), secondBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 15)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 15)
   })
 
   it('lets STARs purchasers to receive 15% bonus tokens at the end of second bonus sales milestones (edge case)', async () => {
@@ -125,10 +125,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2300)
 
-    assert.isAtMost(purchase[2].toNumber(), secondBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), secondBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 15)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 15)
   })
 
   it('should give 10 % bonus tokens for purchasers of STARs btw the 22nd and 35th day', async () => {
@@ -149,10 +149,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     const purchase = await cs.crowdsalePurchases(1)
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2200)
-    assert.isAtLeast(purchase[2].toNumber(), secondBonusSalesEnds)
-    assert.isAtMost(purchase[2].toNumber(), thirdBonusSalesEnds)
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 10)
+    assert.isAtLeast(purchase[3].toNumber(), secondBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), thirdBonusSalesEnds)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 10)
   })
 
   it('lets STARs purchasers to receive 10% bonus tokens at the end of second bonus sales milestones (edge case)', async () => {
@@ -173,10 +173,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2200)
 
-    assert.isAtMost(purchase[2].toNumber(), thirdBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), thirdBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 10)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 10)
   })
 
   it('should give 5 % bonus tokens for purchasers of STARs btw the 36th and 42nd day', async () => {
@@ -198,10 +198,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
 
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2100)
-    assert.isAtLeast(purchase[2].toNumber(), thirdBonusSalesEnds)
-    assert.isAtMost(purchase[2].toNumber(), fourthBonusSalesEnds)
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 5)
+    assert.isAtLeast(purchase[3].toNumber(), thirdBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), fourthBonusSalesEnds)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 5)
   })
 
   it('lets STARs purchasers to receive 5% bonus tokens at the end of second bonus sales milestones (edge case)', async () => {
@@ -222,10 +222,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2100)
 
-    assert.isAtMost(purchase[2].toNumber(), fourthBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), fourthBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 5)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 5)
   })
 
   it('should give 0 % bonus tokens for purchasers of STARs between 43rd and 45th day', async () => {
@@ -247,10 +247,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
 
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2000)
-    assert.isAtLeast(purchase[2].toNumber(), fourthBonusSalesEnds.toNumber())
-    assert.isAtMost(purchase[2].toNumber(), fifthBonusSalesEnds.toNumber())
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 0)
+    assert.isAtLeast(purchase[3].toNumber(), fourthBonusSalesEnds.toNumber())
+    assert.isAtMost(purchase[3].toNumber(), fifthBonusSalesEnds.toNumber())
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 0)
   })
 
   it('lets STARs purchasers to receive 0% bonus tokens at the end of second bonus sales milestones (edge case)', async () => {
@@ -271,10 +271,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2000)
 
-    assert.isAtMost(purchase[2].toNumber(), fifthBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), fifthBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 0)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 0)
   })
 
   it('allows STARs purchases with 20% bonus tokens btw the 46th and 48th day of crowdsale', async () => {
@@ -296,11 +296,11 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2400)
 
-    assert.isAtLeast(purchase[2].toNumber(), startDate)
-    assert.isAtMost(purchase[2].toNumber(), firstExtendedBonusSalesEnds)
+    assert.isAtLeast(purchase[3].toNumber(), startDate)
+    assert.isAtMost(purchase[3].toNumber(), firstExtendedBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 20)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 20)
   })
 
   it('lets STARs purchasers to receive 20% bonus tokens at the exact end of first extended bonus sales milestones (edge case)', async () => {
@@ -321,10 +321,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2400)
 
-    assert.isAtMost(purchase[2].toNumber(), firstExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), firstExtendedBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 20)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 20)
   })
 
   it('should give 15 % bonus tokens for purchasers of STARs btw the 49th and 51st day', async () => {
@@ -346,11 +346,11 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2300)
 
-    assert.isAtLeast(purchase[2].toNumber(), firstExtendedBonusSalesEnds)
-    assert.isBelow(purchase[2].toNumber(), secondExtendedBonusSalesEnds)
+    assert.isAtLeast(purchase[3].toNumber(), firstExtendedBonusSalesEnds)
+    assert.isBelow(purchase[3].toNumber(), secondExtendedBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 15)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 15)
   })
 
   it('lets STARs purchasers to receive 15% bonus tokens at the exact end of second extended bonus sales milestones (edge case)', async () => {
@@ -371,10 +371,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2300)
 
-    assert.isAtMost(purchase[2].toNumber(), secondExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), secondExtendedBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 15)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 15)
   })
 
   it('allows STARs purchases with 10% bonus tokens btw the 52nd ~ 54th day of crowdsale', async () => {
@@ -395,10 +395,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     const purchase = await cs.crowdsalePurchases(1)
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2200)
-    assert.isAtLeast(purchase[2].toNumber(), secondExtendedBonusSalesEnds)
-    assert.isBelow(purchase[2].toNumber(), thirdExtendedBonusSalesEnds)
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 10)
+    assert.isAtLeast(purchase[3].toNumber(), secondExtendedBonusSalesEnds)
+    assert.isBelow(purchase[3].toNumber(), thirdExtendedBonusSalesEnds)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 10)
   })
 
   it('lets STARs purchasers to receive 10% bonus tokens at the end of second extended bonus sales milestones (edge case)', async () => {
@@ -419,10 +419,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2200)
 
-    assert.isAtMost(purchase[2].toNumber(), thirdExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), thirdExtendedBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 10)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 10)
   })
 
   it('should give 5 % bonus tokens for purchasers of STARs btw the 55th and 57th day day', async () => {
@@ -443,10 +443,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     const purchase = await cs.crowdsalePurchases(1)
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2100)
-    assert.isAtLeast(purchase[2].toNumber(), thirdExtendedBonusSalesEnds)
-    assert.isAtMost(purchase[2].toNumber(), fourthExtendedBonusSalesEnds)
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 5)
+    assert.isAtLeast(purchase[3].toNumber(), thirdExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), fourthExtendedBonusSalesEnds)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 5)
   })
 
   it('lets STARs purchasers to receive 5% bonus tokens at the exact end of second extended bonus sales milestones (edge case)', async () => {
@@ -467,10 +467,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2100)
 
-    assert.isAtMost(purchase[2].toNumber(), fourthExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), fourthExtendedBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 5)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 5)
   })
 
   it('should give 0 % bonus tokens for purchasers of STARs between the 58th and 60th day', async () => {
@@ -491,10 +491,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     const purchase = await cs.crowdsalePurchases(1)
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2000)
-    assert.isAtLeast(purchase[2].toNumber(), fourthExtendedBonusSalesEnds)
-    assert.isAtMost(purchase[2].toNumber(), fifthExtendedBonusSalesEnds)
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 0)
+    assert.isAtLeast(purchase[3].toNumber(), fourthExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), fifthExtendedBonusSalesEnds)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 0)
   })
 
   it('lets STARs purchasers to receive 0% bonus tokens at the exact end of second extended bonus sales milestones (edge case)', async () => {
@@ -515,10 +515,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2000)
 
-    assert.isAtMost(purchase[2].toNumber(), fifthExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), fifthExtendedBonusSalesEnds)
 
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 0)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 0)
   })
 
   it(' allows bonus token bonus to accrue between 61st and 120th day -- 1%', async () => {
@@ -539,10 +539,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     const purchase = await cs.crowdsalePurchases(1)
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2020)
-    assert.isAtLeast(purchase[2].toNumber(), fifthExtendedBonusSalesEnds)
-    assert.isAtMost(purchase[2].toNumber(), sixthExtendedBonusSalesEnds)
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 1)
+    assert.isAtLeast(purchase[3].toNumber(), fifthExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), sixthExtendedBonusSalesEnds)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 1)
   })
 
   it(' allows bonus token bonus to accrue between 61st and 120th day -- 22%', async () => {
@@ -563,10 +563,10 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     const purchase = await cs.crowdsalePurchases(1)
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 2440)
-    assert.isAtLeast(purchase[2].toNumber(), fifthExtendedBonusSalesEnds)
-    assert.isAtMost(purchase[2].toNumber(), sixthExtendedBonusSalesEnds)
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 22)
+    assert.isAtLeast(purchase[3].toNumber(), fifthExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), sixthExtendedBonusSalesEnds)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 22)
   })
 
   it('allows bonus token bonus to accrue between 61st and 120th day-- 59%', async () => {
@@ -587,9 +587,9 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
     const purchase = await cs.crowdsalePurchases(1)
     assert.equal(purchase[0].toString(), purchaser1)
     assert.equal(purchase[1].toNumber(), 3180)
-    assert.isAtLeast(purchase[2].toNumber(), fifthExtendedBonusSalesEnds)
-    assert.isAtMost(purchase[2].toNumber(), sixthExtendedBonusSalesEnds)
-    assert.equal(purchase[3].toString(), '')
-    assert.equal(purchase[4].toNumber(), 59)
+    assert.isAtLeast(purchase[3].toNumber(), fifthExtendedBonusSalesEnds)
+    assert.isAtMost(purchase[3].toNumber(), sixthExtendedBonusSalesEnds)
+    assert.equal(purchase[4].toString(), '')
+    assert.equal(purchase[5].toNumber(), 59)
   })
 })
