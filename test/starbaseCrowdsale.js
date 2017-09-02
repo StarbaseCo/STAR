@@ -378,6 +378,47 @@ contract('StarbaseCrowdsale', accounts => {
       await cs.recordOffchainPurchase(purchaser1, 1, Math.floor(Date.now() / 1000), 'btc:xxx')
       assert.isBelow(utils.getBlockNow() - (await cs.startDate()).toNumber(), 5) // started just now
     })
+
+    it('does NOT allow owner to start crowdsale before purchase block has been reached', async () => {
+      const cs = await newCrowdsale()
+      const startsAt = web3.eth.blockNumber + 30
+      await cs.setup(token.address, startsAt)
+
+      try {
+        await cs.ownerStartsCrowdsale(utils.getBlockNow())
+      } catch (e) {
+        utils.ensuresException(e)
+      }
+
+      assert.equal((await cs.startDate()).toNumber(), 0)
+    })
+
+    it('does NOT allow owner to overrride start date of crowdsale', async () => {
+      const cs = await newCrowdsale()
+      const startsAt = web3.eth.blockNumber
+      await cs.setup(token.address, startsAt)
+      await cs.updateCnyEthRate(1000)
+      await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
+      const startDate = await cs.startDate()
+
+      try {
+        await cs.ownerStartsCrowdsale(utils.getBlockNow())
+      } catch (e) {
+        utils.ensuresException(e)
+      }
+
+      assert.equal((await cs.startDate()).toNumber(), startDate.toNumber())
+    })
+
+    it('allows owner to start crowdsale', async () => {
+      const cs = await newCrowdsale()
+      const startsAt = web3.eth.blockNumber
+      await cs.setup(token.address, startsAt)
+      const startDate = utils.getBlockNow()
+
+      await cs.ownerStartsCrowdsale(startDate)
+      assert.equal((await cs.startDate()).toNumber(), startDate)
+    })
   })
 
   describe('unable to record offline purchases', () => {
