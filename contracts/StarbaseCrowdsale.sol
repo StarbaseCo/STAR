@@ -204,7 +204,7 @@ contract StarbaseCrowdsale is Ownable {
     {
         require(purchaseStartBlock > 0 && block.number >= purchaseStartBlock);
         if (startDate == 0) {
-            startCrowdsale();
+            startCrowdsale(block.timestamp);
         }
 
         uint256 bonusTier = getBonusTier();
@@ -254,13 +254,24 @@ contract StarbaseCrowdsale is Ownable {
     }
 
     /**
+     * @dev Allow for the possibilyt for contract owner to start crowdsale
+     */
+    function ownerStartsCrowdsale(uint256 timestamp)
+        external
+        onlyOwner
+    {
+        assert(startDate == 0 && block.number >= purchaseStartBlock);   // overwriting startDate is not permitted and it should be after the crowdsale start block
+        startCrowdsale(timestamp);
+
+    }
+
+    /**
      * @dev Ends crowdsale
      * @param timestamp Timestamp at the crowdsale ended
      */
     function endCrowdsale(uint256 timestamp)
         external
         onlyOwner
-        returns (bool)
     {
         assert(timestamp > 0 && timestamp <= now);
         assert(endedAt == 0);   // overwriting time is not permitted
@@ -560,7 +571,7 @@ contract StarbaseCrowdsale is Ownable {
     {
         require(purchaseStartBlock > 0 && block.number >= purchaseStartBlock);
         if (startDate == 0) {
-            startCrowdsale();
+            startCrowdsale(block.timestamp);
         }
 
         uint256 bonusTier = getBonusTier();
@@ -579,8 +590,8 @@ contract StarbaseCrowdsale is Ownable {
     /**
      * @dev Initializes Starbase crowdsale
      */
-    function startCrowdsale() internal returns (bool) {
-        startDate = now;
+    function startCrowdsale(uint256 timestamp) internal {
+        startDate = timestamp;
 
         // set token bonus milestones
         firstBonusSalesEnds = startDate + 7 days;             // 1. 1st ~ 7th day
