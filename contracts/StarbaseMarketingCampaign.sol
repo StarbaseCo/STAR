@@ -14,8 +14,7 @@ contract StarbaseMarketingCampaign is Ownable {
      *  Events
      */
     event NewContributor (address indexed contributorAddress, uint256 tokenCount);
-    event UpdateContributorsTokens(address indexed contributorAddress, uint256 tokenCount);
-    event WithdrawContributorsToken(address indexed contributorAddress, uint256 tokenWithdrawn, uint remainingTokens);
+    event WithdrawContributorsToken(address indexed contributorAddress, uint256 tokenWithdrawn);
 
     /**
      *  External contracts
@@ -26,63 +25,31 @@ contract StarbaseMarketingCampaign is Ownable {
      * Types
      */
     struct Contributor {
-        uint256 rewardTokens;
-        uint256 transferredRewardTokens;
+        uint256 rewardedTokens;
         mapping (bytes32 => bool) contributions;  // example: keccak256(bcm-xda98sdf) => true
+        bool isContributor;
     }
 
     /**
      *  Storage
      */
-    address public workshop;  // holds undelivered STARs
     address[] public contributors;
     mapping (address => Contributor) public contributor;
-
-    /**
-     *  Modifiers
-     */
-    modifier onlyOwnerOr(address _allowed) {
-        // Only owner or specified address are allowed to do this action.
-        assert(msg.sender == owner || msg.sender == _allowed);
-        _;
-    }
 
     /**
      *  Functions
      */
 
     /**
-     * @dev Contract constructor sets owner and workshop address.
-     * @param workshopAddr The address that will hold undelivered Star tokens
+     * @dev Contract constructor sets owner address.
      */
-    function StarbaseMarketingCampaign(address workshopAddr) {
-        require(workshopAddr != address(0));
+    function StarbaseMarketingCampaign() {
         owner = msg.sender;
-        workshop = workshopAddr;
     }
 
     /*
      *  External Functions
      */
-
-    /**
-     * @dev Allows for marketing contributor's reward withdrawl
-     * @param contributorAddress The address of the contributor
-     * @param tokensToTransfer Token number to withdraw
-     */
-    function withdrawRewardedTokens (address contributorAddress, uint256 tokensToTransfer)
-        external
-        onlyOwnerOr(contributorAddress)
-    {
-        require(contributor[contributorAddress].rewardTokens > 0 && tokensToTransfer <= contributor[contributorAddress].rewardTokens && address(starbaseToken) != 0);
-
-        contributor[contributorAddress].rewardTokens = SafeMath.sub(contributor[contributorAddress].rewardTokens, tokensToTransfer);
-
-        contributor[contributorAddress].transferredRewardTokens = SafeMath.add(contributor[contributorAddress].transferredRewardTokens, tokensToTransfer);
-
-        starbaseToken.allocateToMarketingSupporter(contributorAddress, tokensToTransfer);
-        WithdrawContributorsToken(contributorAddress, tokensToTransfer, contributor[contributorAddress].rewardTokens);
-    }
 
     /**
      * @dev Setup function sets external contracts' addresses.
@@ -99,71 +66,61 @@ contract StarbaseMarketingCampaign is Ownable {
     }
 
     /**
-     * @dev Include new contributor
-     * @param contributorAddress A contributor's address
-     * @param tokenCount number of tokens assigned to contributor on their inclusion
+     * @dev Allows for marketing contributor's reward adding and withdrawl
+     * @param contributorAddress The address of the contributor
+     * @param tokenCount Token number to awarded and to be withdrawn
      * @param contributionId Id of contribution from bounty app db
      */
-    function addRewardforNewContributor
-        (
-            address contributorAddress,
-            uint256 tokenCount,
-            string contributionId
-        )
-            external
-            onlyOwner
-    {
-        bytes32 id = keccak256(contributionId);
-
-        require(!contributor[contributorAddress].contributions[id]);
-        assert(contributor[contributorAddress].rewardTokens == 0 && contributor[contributorAddress].transferredRewardTokens == 0);
-
-        contributor[contributorAddress].rewardTokens = tokenCount;
-        contributor[contributorAddress].contributions[id] = true;
-        contributors.push(contributorAddress);
-        NewContributor(contributorAddress, tokenCount);
-    }
-
-    /**
-     * @dev Updates contributors rewardTokens
-     * @param contributorAddress A contributor's address
-     * @param tokenCount number of tokens to update for the contributor
-     * @param contributionId Id of contribution from bounty app db
-     */
-    function updateRewardForContributor (address contributorAddress, uint256 tokenCount, string contributionId)
+    function deliverRewardedTokens(
+        address contributorAddress,
+        uint256 tokenCount,
+        string contributionId
+    )
         external
         onlyOwner
-        returns (bool)
+        returns(bool)
     {
+
         bytes32 id = keccak256(contributionId);
 
-        require(contributor[contributorAddress].contributions[id]);
+        assert(!contributor[contributorAddress].contributions[id]);
+        contributor[contributorAddress].contributions[id] = true;
 
-        contributor[contributorAddress].rewardTokens = SafeMath.add(contributor[contributorAddress].rewardTokens, tokenCount);
-        UpdateContributorsTokens(contributorAddress, tokenCount);
+        contributor[contributorAddress].rewardedTokens = SafeMath.add(contributor[contributorAddress].rewardedTokens, tokenCount);
+
+        if (!contributor[contributorAddress].isContributor) {
+            contributor[contributorAddress].isContributor = true;
+            contributors.push(contributorAddress);
+            NewContributor(contributorAddress, tokenCount);
+        }
+
+        starbaseToken.allocateToMarketingSupporter(contributorAddress, tokenCount);
+        WithdrawContributorsToken(contributorAddress, tokenCount);
+
         return true;
     }
+
 
     /**
      *  Public Functions
      */
 
     /**
-     * @dev Informs about contributors rewardTokens and transferredRewardTokens status
+     * @dev Informs about contributors rewardedTokens and transferredRewardTokens status
      * @param contributorAddress A contributor's address
      * @param contributionId Id of contribution from bounty app db
      */
     function getContributorInfo(address contributorAddress, string contributionId)
-      constant
-      public
-      returns (uint256, uint256, bool)
+        constant
+        public
+        returns (uint256, bool, bool)
     {
         bytes32 id = keccak256(contributionId);
 
         return(
-          contributor[contributorAddress].rewardTokens,
-          contributor[contributorAddress].transferredRewardTokens,
-          contributor[contributorAddress].contributions[id]
+          contributor[contributorAddress].rewardedTokens,
+          contributor[contributorAddress].contributions[id],
+          contributor[contributorAddress].isContributor
         );
     }
 
@@ -171,10 +128,10 @@ contract StarbaseMarketingCampaign is Ownable {
      * @dev Returns number of contributors.
      */
     function numberOfContributors()
-      constant
-      public
-      returns (uint256)
+        constant
+        public
+        returns (uint256)
     {
-      return contributors.length;
+        return contributors.length;
     }
 }
