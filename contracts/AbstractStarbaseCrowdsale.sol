@@ -1,7 +1,6 @@
 pragma solidity ^0.4.13;
 
 contract AbstractStarbaseCrowdsale {
-    function workshop() constant returns (address) {}
     function startDate() constant returns (uint256) {}
     function endedAt() constant returns (uint256) {}
     function isEnded() constant returns (bool);

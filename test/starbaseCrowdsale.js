@@ -12,11 +12,11 @@ contract('StarbaseCrowdsale', accounts => {
   const founder1 = accounts[0]
   const purchaser1 = accounts[1]
   const purchaser2 = accounts[2]
-  const company = accounts[3]
-  const csWorkshop = accounts[4]
-  const mkgWorkshop = accounts[5]
-  const addressA = accounts[6]
-  const addressB = accounts[7]
+  const purchaser3 = accounts[3]
+  const company = accounts[4]
+  const addressA = accounts[5]
+  const addressB = accounts[6]
+  const addressC = accounts[7]
   const totalAmountOfEP = 6000000;
 
   let mkgCampaign
@@ -29,7 +29,7 @@ contract('StarbaseCrowdsale', accounts => {
 
   const newCrowdsale = (customEpa) => {
     if (customEpa) {
-      return StarbaseCrowdsale.new(csWorkshop, customEpa.address)
+      return StarbaseCrowdsale.new(customEpa.address)
     } else {
       let ep, epa
       return StarbaseEarlyPurchase.new().then(x => {
@@ -41,7 +41,7 @@ contract('StarbaseCrowdsale', accounts => {
         epa = x
         epa.loadStarbaseEarlyPurchases(ep.address)
       }).then(() => {
-        return StarbaseCrowdsale.new(csWorkshop, epa.address)
+        return StarbaseCrowdsale.new(epa.address)
       })
     }
   }
@@ -60,15 +60,26 @@ contract('StarbaseCrowdsale', accounts => {
     await cs.setup(token.address, web3.eth.blockNumber)
   })
 
-  it('should be able to be instantiated with a workshop address', async () => {
-    assert.equal(await cs.workshop.call(), csWorkshop)
-  })
-
   it('should be able to set an address of StarbaseToken contract', async () => {
     assert.equal(await cs.starbaseToken.call(), token.address)
   })
 
-  it("logs StarBasePurchasedWithEth event", async () => {
+  it('should determine a max crowdsale cap from MAX_CAP and early purchase result', async () => {
+    const now = utils.getBlockNow()
+    const ep = await StarbaseEarlyPurchase.new()
+    await ep.appendEarlyPurchase(purchaser1, 3000000, now)
+    await ep.appendEarlyPurchase(purchaser1, 706328, now)
+    await ep.closeEarlyPurchase()
+    const epa = await StarbaseEarlyPurchaseAmendment.new()
+    await epa.loadStarbaseEarlyPurchases(ep.address)
+    assert.equal((await epa.totalAmountOfEarlyPurchases.call()).toNumber(), 3706328)
+
+    const cs = await newCrowdsale(epa)
+    await cs.setup(token.address, now)
+    assert.equal((await cs.maxCrowdsaleCap.call()).toNumber(), 63293672)
+  })
+
+  it("logs StarbasePurchasedWithEth event", async () => {
     await cs.updateCnyEthRate(2000)
     await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
     const fortyfourDaysAsSeconds = secondsInADay * 44
@@ -224,12 +235,18 @@ contract('StarbaseCrowdsale', accounts => {
       })
 
       it('does NOT let presale qualified purchasers to ignore hard cap once the crowdsale has started', async () => {
-        const cs = await newCrowdsale()
+        const ep = await StarbaseEarlyPurchase.new()
+        await ep.appendEarlyPurchase(purchaser2, 7000000, utils.getBlockNow())
+        await ep.closeEarlyPurchase()
+        const epa = await StarbaseEarlyPurchaseAmendment.new()
+        await epa.loadStarbaseEarlyPurchases(ep.address)
+
+        const cs = await newCrowdsale(epa)
         const startsAt = web3.eth.blockNumber - 40
         await cs.setup(token.address, startsAt)
 
         await cs.setQualifiedPartner(purchaser1, 2e+18, 0)
-        await cs.updateCnyEthRate(60000000)
+        await cs.updateCnyEthRate(60000000) // = crowdsale cap = 67000000 - 7000000
 
         await cs.purchaseAsQualifiedPartner({ from: purchaser1, value: 1e+18 })
 
@@ -511,7 +528,7 @@ contract('StarbaseCrowdsale', accounts => {
         'btc:1732c342c93f69bb63b62960c422564d9b6e6f47f077d5498f0087e2bb2c256d')
     })
 
-    it("logs StarBasePurchasedOffChain event", async () => {
+    it("logs StarbasePurchasedOffChain event", async () => {
       const { logs } = await cs.recordOffchainPurchase(
         purchaser1,
         2,
@@ -543,11 +560,27 @@ contract('StarbaseCrowdsale', accounts => {
       assert.isTrue(await cs.isEnded())
     })
 
+    it('cannot end a crowdsale before it starts', async () => {
+        const cs = await newCrowdsale()
+        const token = await newToken(cs.address)
+        await cs.setup(token.address, web3.eth.blockNumber + 30)
+        await cs.updateCnyBtcRate(2000)
+        const now = utils.getBlockNow() // base timestamp off the blockchain
+
+        try {
+          await cs.endCrowdsale(now)
+          assert.fail()
+        } catch(error) {
+          utils.ensuresException(error)
+        }
+    })
+
     it('errors with a time higher than now', async () => {
       const now = utils.getBlockNow() // base timestamp off the blockchain
 
       try {
         await cs.endCrowdsale(now + 2)
+        assert.fail()
       } catch(error) {
         utils.ensuresException(error)
       }
@@ -568,17 +601,70 @@ contract('StarbaseCrowdsale', accounts => {
   describe('delivery of tokens', () => {
     it('returns the number of purchased tokens by a purchaser upon delivery', async () => {
       const cs = await newCrowdsale()
-      const token = await newToken(cs.address)
       await cs.loadEarlyPurchases()
+      const token = await newToken(cs.address)
       await cs.setup(token.address, web3.eth.blockNumber)
       await cs.updateCnyEthRate(2000)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
       await cs.endCrowdsale(utils.getBlockNow())
-      assert.equal((await cs.numOfPurchasedTokensOnCsBy.call(purchaser1)).toNumber(), 0)
+      assert.equal((await cs.numOfPurchasedTokensOnCsBy.call(purchaser1)).toNumber(), 0) // this tracks amount of token delivered. Zero here because user has not triggered the delivery yet.
 
-      await cs.deliverPurchasedTokens()
+      await cs.withdrawPurchasedTokens({ from: purchaser1 })
       assert.equal((await cs.numOfPurchasedTokensOnCsBy.call(purchaser1)).toNumber(), 1.25e+26) // total tokens including 20% bonus
       assert.equal((await cs.numOfPurchasedTokensOnCsBy.call(purchaser2)).toNumber(), 0)
+    })
+
+    it('updates the cny purchase value of the pucharses and zeroes it once tokens are delivered', async () => {
+      const cs = await newCrowdsale()
+      await cs.loadEarlyPurchases()
+      const token = await newToken(cs.address)
+      await cs.setup(token.address, web3.eth.blockNumber)
+      await cs.updateCnyEthRate(2000)
+      await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
+      await cs.endCrowdsale(utils.getBlockNow())
+      assert.equal((await cs.crowdsalePurchaseAmountBy.call(purchaser1)).toNumber(), 2400) // CNY amount with bonus
+
+      await cs.withdrawPurchasedTokens({ from: purchaser1 })
+      assert.equal((await cs.crowdsalePurchaseAmountBy.call(purchaser1)).toNumber(), 0) // cny amount from mapping function is zeroed after token delivery by user
+    })
+
+    it('calculates the number of purchases from the same investor even if investor purchases multiple times', async () => {
+      const cs = await newCrowdsale()
+      await cs.loadEarlyPurchases()
+      const token = await newToken(cs.address)
+      await cs.setup(token.address, web3.eth.blockNumber)
+      await cs.updateCnyEthRate(2000)
+      await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
+      await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
+      await cs.purchaseWithEth({ from: purchaser2, value: 1e+18 })
+      await cs.purchaseWithEth({ from: purchaser2, value: 1e+18 })
+      await cs.endCrowdsale(utils.getBlockNow())
+      assert.equal((await cs.crowdsalePurchaseAmountBy.call(purchaser1)).toNumber(), 4800) // CNY amount with bonus
+
+      await cs.withdrawPurchasedTokens({ from: purchaser1 })
+      await cs.withdrawPurchasedTokens({ from: purchaser2 })
+      assert.equal((await cs.crowdsalePurchaseAmountBy.call(purchaser1)).toNumber(), 0) // cny amount from mapping function is zeroed after token delivery by user
+      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 6.25e+25) // total tokens including 20%
+      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 6.25e+25) // total tokens including 20%
+    })
+
+    it('makes the the token figure remain the same even if user calls the withdrawPurchasedTokens multiple times', async () => {
+      const cs = await newCrowdsale()
+      await cs.loadEarlyPurchases()
+      const token = await newToken(cs.address)
+      await cs.setup(token.address, web3.eth.blockNumber)
+      await cs.updateCnyEthRate(2000)
+      await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
+      await cs.endCrowdsale(utils.getBlockNow())
+      assert.equal((await cs.crowdsalePurchaseAmountBy.call(purchaser1)).toNumber(), 2400) // CNY amount with bonus
+
+      await cs.withdrawPurchasedTokens({ from: purchaser1 })
+      assert.equal((await cs.crowdsalePurchaseAmountBy.call(purchaser1)).toNumber(), 0) // cny amount from mapping function is zeroed after token delivery by user
+      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 1.25e+26) // total tokens including 20%
+
+      await cs.withdrawPurchasedTokens({ from: purchaser1 })
+      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 1.25e+26)
+      assert.equal((await cs.numOfDeliveredCrowdsalePurchases.call()).toNumber(), 1)
     })
 
     it('keeps track of the number of delivered crowdsale purchase', async () => {
@@ -590,39 +676,38 @@ contract('StarbaseCrowdsale', accounts => {
       await cs.updateCnyEthRate(2000)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
       await cs.purchaseWithEth({ from: purchaser2, value: 1e+18 })
-      await cs.purchaseWithEth({ from: accounts[6], value: 1e+18 })
+      await cs.purchaseWithEth({ from: addressA, value: 1e+18 })
       await cs.endCrowdsale(utils.getBlockNow())
 
-      const estimatedGas = await cs.deliverPurchasedTokens.estimateGas()
-      await cs.deliverPurchasedTokens.sendTransaction({ gas: estimatedGas})
+      await cs.withdrawPurchasedTokens.sendTransaction({ from: purchaser1 })
+
       assert.equal((await cs.numOfDeliveredCrowdsalePurchases.call()).toNumber(), 1) // index of crowdsalePurchases when gas ran out.
       assert.equal((await token.balanceOf(purchaser1)).toNumber(), 4.1666666666666664e+25, 'Number of tokens by purchaser1 first time') // total tokens including 20%
       assert.equal((await token.balanceOf(purchaser2)).toNumber(), 0, 'Number of tokens by purchaser2 first time') // total tokens including 20%
-      assert.equal((await token.balanceOf(accounts[6])).toNumber(), 0, 'Number of tokens by accounts[6] first time') // total tokens including 20%
+      assert.equal((await token.balanceOf(addressA)).toNumber(), 0, 'Number of tokens by addressA first time') // total tokens including 20%
 
-      await cs.deliverPurchasedTokens() // continues token delivery from index it was left off from
+      await cs.withdrawPurchasedTokens.sendTransaction({ from: purchaser2 })
+      await cs.withdrawPurchasedTokens.sendTransaction({ from: addressA })
+
       assert.equal((await cs.numOfDeliveredCrowdsalePurchases.call()).toNumber(), 3)
       assert.equal((await token.balanceOf(purchaser1)).toNumber(), 4.1666666666666664e+25, 'Number of tokens by purchaser1 second time') // total tokens including 20%
       assert.equal((await token.balanceOf(purchaser2)).toNumber(), 4.1666666666666664e+25, 'Number of tokens by purchaser2 second time') // total tokens including 20%
-      assert.equal((await token.balanceOf(accounts[6])).toNumber(), 4.1666666666666664e+25, 'Number of tokens by accounts[6] second time') // total tokens including 20%
+      assert.equal((await token.balanceOf(addressA)).toNumber(), 4.1666666666666664e+25, 'Number of tokens by addressA second time') // total tokens including 20%
     })
 
     it('should be able to load early puchases from StarbaseEarlyPurchaseAmendment contract with 20% bonus', async () => {
       const now = utils.getBlockNow()
       const ep = await StarbaseEarlyPurchase.new()
-      await ep.appendEarlyPurchase(purchaser1, 100, now)
       await ep.appendEarlyPurchase(purchaser2, 50, now)
       await ep.appendEarlyPurchase(purchaser1, 200, now)
       await ep.appendEarlyPurchase(purchaser1, 300, now)
       await ep.closeEarlyPurchase()
       const epa = await StarbaseEarlyPurchaseAmendment.new()
       await epa.loadStarbaseEarlyPurchases(ep.address)
-      await epa.invalidateEarlyPurchase(0)
-      await epa.amendEarlyPurchase(2, purchaser1, 150, now)
 
       const cs = await newCrowdsale(epa)
       await cs.loadEarlyPurchases()
-      assert.equal((await cs.earlyPurchasedAmountBy(purchaser1)).toNumber(), 540) // 450 + 90 (20% bonus)
+      assert.equal((await cs.earlyPurchasedAmountBy(purchaser1)).toNumber(), 600) // 500 + 100 (20% bonus)
       assert.equal((await cs.earlyPurchasedAmountBy(purchaser2)).toNumber(), 60) // 50 + 10 (20% bonus)
       assert.equal((await cs.earlyPurchasedAmountBy(founder1)).toNumber(), 0)
     })
@@ -645,7 +730,8 @@ contract('StarbaseCrowdsale', accounts => {
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
       await cs.endCrowdsale(utils.getBlockNow())
 
-      await cs.deliverPurchasedTokens()
+      await cs.withdrawPurchasedTokens({ from: purchaser1 })
+      await cs.withdrawPurchasedTokens({ from: purchaser2 })
       assert.equal((await token.balanceOf(purchaser1)).toNumber(), 158281315.02288805e+18) // purchase during crowdsale + early purchases.
       assert.equal((await token.balanceOf(purchaser2)).toNumber(), 16718684.977111944e+18)
     })
@@ -656,7 +742,7 @@ contract('StarbaseCrowdsale', accounts => {
       await ep.appendEarlyPurchase(purchaser1, 2, now)
       await ep.appendEarlyPurchase(purchaser2, 1, now)
       await ep.appendEarlyPurchase(founder1, 1, now)
-      await ep.appendEarlyPurchase(accounts[6], 1, now)
+      await ep.appendEarlyPurchase(addressA, 1, now)
 
       await ep.closeEarlyPurchase()
       const epa = await StarbaseEarlyPurchaseAmendment.new()
@@ -669,22 +755,136 @@ contract('StarbaseCrowdsale', accounts => {
       await timer(2) // wait a couple of secs
       await cs.endCrowdsale(utils.getBlockNow())
 
-      const estimatedGas = await cs.deliverPurchasedTokens.estimateGas()
-      await cs.deliverPurchasedTokens.sendTransaction({ gas: estimatedGas })
+      await cs.withdrawPurchasedTokens.sendTransaction({ from: purchaser1 })
+      await cs.withdrawPurchasedTokens.sendTransaction({ from: purchaser2 })
+      await cs.withdrawPurchasedTokens.sendTransaction({ from: founder1 })
       assert.equal((await cs.numOfDeliveredEarlyPurchases.call()).toNumber(), 3)
 
-      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 7e+25, 'Number of delivered tokens for purchaser1 first time entering the deliverPurchasedTokens') // total tokens including 20%
-      assert.equal((await token.balanceOf(purchaser2)).toNumber(), 3.5e+25, 'Number of delivered tokens for purchaser2 first time entering the deliverPurchasedTokens') // total tokens including 20%
-      assert.equal((await token.balanceOf(founder1)).toNumber(), 3.5e+25, 'Number of delivered tokens for founder1 first time entering the deliverPurchasedTokens')
-      assert.equal((await token.balanceOf(accounts[6])).toNumber(), 0, 'Number of delivered tokens for accounts[6] first time entering the deliverPurchasedTokens')
+      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 7e+25, 'Number of delivered tokens for purchaser1 first time entering the withdrawPurchasedTokens') // total tokens including 20%
+      assert.equal((await token.balanceOf(purchaser2)).toNumber(), 3.5e+25, 'Number of delivered tokens for purchaser2 first time entering the withdrawPurchasedTokens') // total tokens including 20%
+      assert.equal((await token.balanceOf(founder1)).toNumber(), 3.5e+25, 'Number of delivered tokens for founder1 first time entering the withdrawPurchasedTokens')
+      assert.equal((await token.balanceOf(addressA)).toNumber(), 0, 'Number of delivered tokens for addressA first time entering the withdrawPurchasedTokens')
 
-      await cs.deliverPurchasedTokens() // continues token delivery from index it was left off from
+      await cs.withdrawPurchasedTokens.sendTransaction({ from: addressA })
       assert.equal((await cs.numOfDeliveredEarlyPurchases.call()).toNumber(), 4)
 
-      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 7e+25, 'Number of delivered tokens for purchaser1 second time entering the deliverPurchasedTokens', 'Number of delivered tokens for purchaser2 second time entering the deliverPurchasedTokens')
-      assert.equal((await token.balanceOf(purchaser2)).toNumber(), 3.5e+25, 'Number of delivered tokens for founder1 second time entering the deliverPurchasedTokens')
-      assert.equal((await token.balanceOf(founder1)).toNumber(), 3.5e+25, 'Number of delivered tokens for accounts[6] second time entering the deliverPurchasedTokens')
-      assert.equal((await token.balanceOf(accounts[6])).toNumber(), 3.5e+25, 'Number of delivered tokens for accounts[6]')
+      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 7e+25, 'Number of delivered tokens for purchaser1 second time entering the withdrawPurchasedTokens', 'Number of delivered tokens for purchaser2 second time entering the withdrawPurchasedTokens')
+      assert.equal((await token.balanceOf(purchaser2)).toNumber(), 3.5e+25, 'Number of delivered tokens for founder1 second time entering the withdrawPurchasedTokens')
+      assert.equal((await token.balanceOf(founder1)).toNumber(), 3.5e+25, 'Number of delivered tokens for addressA second time entering the withdrawPurchasedTokens')
+      assert.equal((await token.balanceOf(addressA)).toNumber(), 3.5e+25, 'Number of delivered tokens for addressA')
+    })
+  })
+
+  describe('#loadEarlyPurchases', () => {
+    it('tracks the number of loaded early purchases', async () => {
+      const now = utils.getBlockNow()
+      const ep = await StarbaseEarlyPurchase.new()
+      await ep.appendEarlyPurchase(purchaser1, 2, now)
+      await ep.appendEarlyPurchase(purchaser2, 1, now)
+      await ep.appendEarlyPurchase(founder1, 1, now)
+      await ep.appendEarlyPurchase(addressA, 1, now)
+
+      await ep.closeEarlyPurchase()
+      const epa = await StarbaseEarlyPurchaseAmendment.new()
+      await epa.loadStarbaseEarlyPurchases(ep.address)
+      const cs = await newCrowdsale(epa)
+
+      const estimatedGas = await cs.loadEarlyPurchases.estimateGas()
+      await cs.loadEarlyPurchases.sendTransaction({ gas: estimatedGas })
+
+      assert.equal((await cs.numOfLoadedEarlyPurchases.call()).toNumber(), 2) // index when gas ran out in the loadEarlyPurchases function.
+
+      assert.equal((await cs.earlyPurchasers(0)), purchaser1) // two elements in the earlyPurchasers array
+      assert.equal((await cs.earlyPurchasers(1)), purchaser2)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(purchaser1)).toNumber(), 2)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(purchaser2)).toNumber(), 1)
+
+      await cs.loadEarlyPurchases() // continues loading earlyPurchasers from index it was left off from
+
+      assert.equal((await cs.numOfLoadedEarlyPurchases.call()).toNumber(), 4) // all should be loaded
+
+      assert.equal((await cs.earlyPurchasers(2)), founder1) // check for next early purchaser loaded after out of gas exception.
+      assert.equal((await cs.earlyPurchasers(3)), addressA) // // check for last early purchaser
+      assert.equal((await cs.earlyPurchasedAmountBy.call(founder1)).toNumber(), 1)
+
+      assert.equal((await cs.earlyPurchasedAmountBy.call(addressA)).toNumber(), 1)
+    })
+
+    it('correctly updates the index even if there are invalidated purchases', async () => {
+      const now = utils.getBlockNow()
+      const ep = await StarbaseEarlyPurchase.new()
+      await ep.appendEarlyPurchase(addressA, 1, now)
+      await ep.appendEarlyPurchase(addressC, 2, now)
+      await ep.appendEarlyPurchase(purchaser3, 1, now)
+      await ep.appendEarlyPurchase(purchaser1, 2, now)
+      await ep.appendEarlyPurchase(founder1, 1, now)
+
+      await ep.closeEarlyPurchase()
+      const epa = await StarbaseEarlyPurchaseAmendment.new()
+      await epa.loadStarbaseEarlyPurchases(ep.address)
+      const cs = await newCrowdsale(epa)
+
+      const estimatedGas = await cs.loadEarlyPurchases.estimateGas()
+      await cs.loadEarlyPurchases.sendTransaction({ gas: estimatedGas })
+
+      assert.equal((await cs.numOfLoadedEarlyPurchases.call()).toNumber(), 3) // index when gas ran out in the loadEarlyPurchases function.
+      assert.equal((await cs.earlyPurchasers(0)), addressA)
+      assert.equal((await cs.earlyPurchasers(1)), addressC)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(addressA)).toNumber(), 1)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(addressB)).toNumber(), 0) // invalidated
+      assert.equal((await cs.earlyPurchasedAmountBy.call(addressC)).toNumber(), 2)
+
+      assert.equal((await cs.earlyPurchasers(2)), purchaser3)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(purchaser3)).toNumber(), 1)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(purchaser1)).toNumber(), 0) // not loaded yet
+      assert.equal((await cs.earlyPurchasedAmountBy.call(founder1)).toNumber(), 0) // not loaded yet
+
+      await cs.loadEarlyPurchases.sendTransaction({ gas: estimatedGas }) // continues loading earlyPurchasers from index it was left off from
+      assert.equal((await cs.numOfLoadedEarlyPurchases.call()).toNumber(), 5) // final array index
+
+      assert.equal((await cs.earlyPurchasers(3)), purchaser1)
+      assert.equal((await cs.earlyPurchasers(4)), founder1)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(purchaser1)).toNumber(), 2)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(purchaser2)).toNumber(), 0) // invalidated
+      assert.equal((await cs.earlyPurchasedAmountBy.call(founder1)).toNumber(), 1)
+    })
+
+    it.skip('is able to load all the 171 early purchasers.', async () => {
+      // NOTE this test takes a long time to run. Therefore it is skipped in CI. In order to test it. Remove `skip()` and start testrpc with the command `testrpc --accounts="171"`
+      const now = utils.getBlockNow()
+      const ep = await StarbaseEarlyPurchase.new()
+
+      for (let ePurchaser = 0; ePurchaser < 171; ePurchaser++) {
+          await ep.appendEarlyPurchase(accounts[ePurchaser], 1, now)
+      }
+
+      await ep.closeEarlyPurchase()
+      const epa = await StarbaseEarlyPurchaseAmendment.new()
+      await epa.loadStarbaseEarlyPurchases(ep.address)
+      const cs = await newCrowdsale(epa)
+
+      try {
+          await cs.loadEarlyPurchases()
+      } catch (e) {
+
+      }
+
+      assert.equal((await cs.numOfLoadedEarlyPurchases.call()).toNumber(), 79) // index when gas ran out in the loadEarlyPurchases function.
+      assert.equal((await cs.earlyPurchasers(30)), accounts[30])
+      assert.equal((await cs.earlyPurchasedAmountBy.call(accounts[30])).toNumber(), 1)
+
+      try {
+        await cs.loadEarlyPurchases()
+      } catch (e) {
+
+      }
+      await cs.loadEarlyPurchases() // continues loading earlyPurchasers from index it was left off from
+      assert.equal((await cs.numOfLoadedEarlyPurchases.call()).toNumber(), 171)
+
+      assert.equal((await cs.earlyPurchasers(90)), accounts[90])
+      assert.equal((await cs.earlyPurchasers(120)), accounts[120])
+      assert.equal((await cs.earlyPurchasedAmountBy.call(accounts[90])).toNumber(), 1)
+      assert.equal((await cs.earlyPurchasedAmountBy.call(accounts[120])).toNumber(), 1)
     })
   })
 
@@ -821,104 +1021,18 @@ contract('StarbaseCrowdsale', accounts => {
     })
   })
 
-  describe('#invalidatePurchase', () => {
-    it('should be able to invalidate crowdsale purchases after the sale ends', async () => {
-      const cs = await newCrowdsale()
-      const token = await newToken(cs.address)
-      await cs.setup(token.address, web3.eth.blockNumber)
-      await cs.loadEarlyPurchases()
-      await timer(2)  // wait a couple of secs
-      await cs.updateCnyEthRate(1000)
-
-      await cs.purchaseWithEth({ from: purchaser1, value: 25e+15 })
-      await cs.purchaseWithEth({ from: purchaser2, value: 50e+15 })
-      await cs.purchaseWithEth({ from: purchaser1, value: 100e+15 })
-      await cs.purchaseWithEth({ from: purchaser1, value: 50e+15 })
-      await cs.purchaseWithEth({ from: purchaser1, value: 10e+15 })
-      await cs.endCrowdsale(utils.getBlockNow())
-
-      await cs.invalidatePurchase(2)
-      await cs.invalidatePurchase(4)
-      await cs.deliverPurchasedTokens()
-
-      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 75e+24) // 75/125 STAR
-      assert.equal((await token.balanceOf(purchaser2)).toNumber(), 50e+24) // 50/125 STAR
-    })
-
-    it('should not work once the tokens are delivered', async () => {
-      const cs = await newCrowdsale()
-      const token = await newToken(cs.address)
-      await cs.setup(token.address, web3.eth.blockNumber)
-      await cs.loadEarlyPurchases()
-      await timer(2)  // wait a couple of secs
-      await cs.updateCnyEthRate(1000)
-
-      await cs.purchaseWithEth({ from: purchaser1, value: 75e+15 })
-      await cs.purchaseWithEth({ from: purchaser2, value: 50e+15 })
-      await cs.endCrowdsale(utils.getBlockNow())
-
-      assert.equal((await cs.crowdsalePurchases(0))[1].toNumber(), 90)
-      await cs.deliverPurchasedTokens()
-      try{
-        await cs.invalidatePurchase(0)
-      } catch (error) {
-        utils.ensuresException(error)
-      }
-      assert.equal((await cs.crowdsalePurchases(0))[1].toNumber(), 90)
-      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 75e+24) // 75/125 STAR
-      assert.equal((await token.balanceOf(purchaser2)).toNumber(), 50e+24) // 50/125 STAR
-    })
-  })
-
-  describe('#amendPurchase', () => {
-    it('should be able to amend crowdsale purchases after the sale ends', async () => {
-      const cs = await newCrowdsale()
-      const token = await newToken(cs.address)
-      await cs.setup(token.address, web3.eth.blockNumber)
-      await cs.loadEarlyPurchases()
-      await timer(2)  // wait a couple of secs
-      await cs.updateCnyEthRate(1000)
-
-      await cs.purchaseWithEth({ from: purchaser1, value: 25e+15 })
-      await cs.purchaseWithEth({ from: purchaser1, value: 25e+15 })
-      await cs.purchaseWithEth({ from: purchaser1, value: 100e+15 })
-      await cs.endCrowdsale(utils.getBlockNow())
-
-      await cs.amendPurchase(1, purchaser2, 60, 60, utils.getBlockNow(), '', 20)
-      await cs.amendPurchase(2, purchaser1, 60, 60, utils.getBlockNow(), '', 20)
-      await cs.deliverPurchasedTokens()
-
-      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 75e+24) // 75/125 STAR
-      assert.equal((await token.balanceOf(purchaser2)).toNumber(), 50e+24) // 50/125 STAR
-    })
-
-    it('should not work once the tokens are delivered', async () => {
-      const cs = await newCrowdsale()
-      const token = await newToken(cs.address)
-      await cs.setup(token.address, web3.eth.blockNumber)
-      await cs.loadEarlyPurchases()
-      await timer(2)  // wait a couple of secs
-      await cs.updateCnyEthRate(1000)
-
-      await cs.purchaseWithEth({ from: purchaser1, value: 75e+15 })
-      await cs.purchaseWithEth({ from: purchaser2, value: 50e+15 })
-      await cs.endCrowdsale(utils.getBlockNow())
-
-      await cs.deliverPurchasedTokens()
-      try{
-        await cs.amendPurchase(0, purchaser2, 60, 60, utils.getBlockNow(), '', 20)
-      } catch (error) {
-        utils.ensuresException(error)
-      }
-
-      assert.equal((await token.balanceOf(purchaser1)).toNumber(), 75e+24) // 75/125 STAR
-      assert.equal((await token.balanceOf(purchaser2)).toNumber(), 50e+24) // 50/125 STAR
-    })
-  })
-
   describe('crowdsale finishes automatically', () => {
     beforeEach('set up', async () => {
-      await cs.updateCnyEthRate(60000000)
+      const ep = await StarbaseEarlyPurchase.new()
+      await ep.appendEarlyPurchase(purchaser3, 7000000, utils.getBlockNow())
+      await ep.closeEarlyPurchase()
+      const epa = await StarbaseEarlyPurchaseAmendment.new()
+      await epa.loadStarbaseEarlyPurchases(ep.address)
+
+      cs = await newCrowdsale(epa)
+      const startsAt = web3.eth.blockNumber - 40
+      await cs.setup(token.address, startsAt)
+      await cs.updateCnyEthRate(60000000) // = crowdsale cap
     })
 
     it('halts crowdsale purchases when the cap reaches over 66M CNY', async () => {

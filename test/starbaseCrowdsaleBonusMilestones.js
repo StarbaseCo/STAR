@@ -1,24 +1,34 @@
 const timer = require('./helpers/timer')
 const utils = require('./helpers/utils')
 
+const StarbaseEarlyPurchase = artifacts.require('./StarbaseEarlyPurchase.sol')
+const StarbaseEarlyPurchaseAmendment = artifacts.require('./StarbaseEarlyPurchaseAmendment.sol')
 const StarbaseToken = artifacts.require('./StarbaseToken.sol')
 const StarbaseCrowdsale = artifacts.require('./StarbaseCrowdsale.sol')
 const StarbaseMarketingCampaign = artifacts.require('./StarbaseMarketingCampaign.sol')
 
 contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
-  const purchaser1 = accounts[1]
-  const csWorkshop = accounts[0]
-  const epaAddress = accounts[2]
-  const dummyAddr = accounts[3]  // dummy
+  const purchaser1 = accounts[0]
+  const dummyAddr = accounts[1]  // dummy
+  const ep1 = accounts[2]
 
+  let epa
   let cs
   let startDate
   let totalAmountOfEP
   const secondsInADay = 86400
 
   const newCrowdsale = () => {
-    return StarbaseCrowdsale.new(csWorkshop, epaAddress)
+    return StarbaseCrowdsale.new(epa.address)
   }
+
+  before('initialize StarbaseEarlyPurchaseAmendment', async () => {
+    const ep = await StarbaseEarlyPurchase.new()
+    await ep.appendEarlyPurchase(ep1, 7000000, utils.getBlockNow())
+    await ep.closeEarlyPurchase()
+    epa = await StarbaseEarlyPurchaseAmendment.new()
+    await epa.loadStarbaseEarlyPurchases(ep.address)
+  })
 
   beforeEach('initialize crowdsale contract', async () => {
     cs = await newCrowdsale()

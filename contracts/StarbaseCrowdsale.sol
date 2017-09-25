@@ -15,13 +15,11 @@ contract StarbaseCrowdsale is Ownable {
      *  Events
      */
     event CrowdsaleEnded(uint256 endedAt);
-    event StarBasePurchasedWithEth(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyEthRate, uint256 bonusTokensPercentage);
-    event StarBasePurchasedOffChain(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyBtcRate, uint256 bonusTokensPercentage, string data);
+    event StarbasePurchasedWithEth(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyEthRate, uint256 bonusTokensPercentage);
+    event StarbasePurchasedOffChain(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyBtcRate, uint256 bonusTokensPercentage, string data);
     event CnyEthRateUpdated(uint256 cnyEthRate);
     event CnyBtcRateUpdated(uint256 cnyBtcRate);
     event QualifiedPartnerAddress(address qualifiedPartner);
-    event PurchaseInvalidated(uint256 purchaseIdx);
-    event PurchaseAmended(uint256 purchaseIdx);
 
     /**
      *  External contracts
@@ -35,7 +33,7 @@ contract StarbaseCrowdsale is Ownable {
     uint256 constant public crowdsaleTokenAmount = 125000000e18;
     uint256 constant public earlyPurchaseTokenAmount = 50000000e18;
     uint256 constant public MIN_INVESTMENT = 1; // min is 1 Wei
-    uint256 constant public MAX_CROWDSALE_CAP = 60000000; // approximately 9M USD for the crowdsale(CS). 1M (by EP) + 9M (by CS) = 10M (Total)
+    uint256 constant public MAX_CAP = 67000000; // in CNY. approximately 10M USD. (includes raised amount from both EP and CS)
     string public constant PURCHASE_AMOUNT_UNIT = 'CNY';  // Chinese Yuan
 
     /**
@@ -60,22 +58,25 @@ contract StarbaseCrowdsale is Ownable {
     /**
      *  Storage
      */
-    address public workshop; // holds undelivered STARs
+    uint public numOfDeliveredCrowdsalePurchases;  // index to keep the number of crowdsale purchases have already been processed by `withdrawPurchasedTokens`
+    uint public numOfDeliveredEarlyPurchases;  // index to keep the number of early purchases have already been processed by `withdrawPurchasedTokens`
+    uint256 public numOfLoadedEarlyPurchases; // index to keep the number of early purchases that have already been loaded by `loadEarlyPurchases`
 
-    uint public numOfDeliveredCrowdsalePurchases = 0;  // index to keep the number of crowdsale purchases have already been processed by `deliverPurchasedTokens`
-    uint public numOfDeliveredEarlyPurchases = 0;  // index to keep the number of early purchases have already been processed by `deliverPurchasedTokens`
-    uint256 public numOfLoadedEarlyPurchases = 0; // index to keep the number of early purchases that have already been loaded by `loadEarlyPurchases`
-
+    // early purchase
     address[] public earlyPurchasers;
-    mapping (address => QualifiedPartners) public qualifiedPartners;
     mapping (address => uint256) public earlyPurchasedAmountBy; // early purchased amount in CNY per purchasers' address
     bool public earlyPurchasesLoaded = false;  // returns whether all early purchases are loaded into this contract
+    uint256 public totalAmountOfEarlyPurchasesInCny;
 
     // crowdsale
+    uint256 public maxCrowdsaleCap;     // = 67M CNY - (total raised amount from EP)
+    uint256 public totalAmountOfPurchasesInCny; // totalPreSale + totalCrowdsale
+    mapping (address => QualifiedPartners) public qualifiedPartners;
     uint256 public purchaseStartBlock;  // crowdsale purchases can be accepted from this block number
     uint256 public startDate;
     uint256 public endedAt;
     CrowdsalePurchase[] public crowdsalePurchases;
+    mapping (address => uint256) public crowdsalePurchaseAmountBy; // crowdsale purchase amount in CNY per purchasers' address
     uint256 public cnyBtcRate; // this rate won't be used from a smart contract function but external system
     uint256 public cnyEthRate;
 
@@ -93,9 +94,6 @@ contract StarbaseCrowdsale is Ownable {
     uint256 public sixthExtendedBonusSalesEnds;
 
     // after the crowdsale
-    mapping(uint256 => CrowdsalePurchase) public invalidatedOrigPurchases;  // Original purchase which was invalidated by owner
-    mapping(uint256 => CrowdsalePurchase) public amendedOrigPurchases;      // Original purchase which was amended by owner
-
     mapping (address => uint256) public numOfPurchasedTokensOnCsBy;    // the number of tokens purchased on the crowdsale by a purchaser
     mapping (address => uint256) public numOfPurchasedTokensOnEpBy;    // the number of tokens early purchased by a purchaser
 
@@ -134,25 +132,22 @@ contract StarbaseCrowdsale is Ownable {
     }
 
     modifier onlyFundraiser() {
-      assert(address(starbaseToken) != 0);
-      assert(starbaseToken.isFundraiser(msg.sender));
-      _;
+        assert(address(starbaseToken) != 0);
+        assert(starbaseToken.isFundraiser(msg.sender));
+        _;
     }
 
     /**
      * Contract functions
      */
-
     /**
-     * @dev Contract constructor function sets owner and start date.
-     * @param workshopAddr The address that will hold undelivered Star tokens
+     * @dev Contract constructor function sets owner address and
+     *      address of StarbaseEarlyPurchaseAmendment contract.
      * @param starbaseEpAddr The address that holds the early purchasers Star tokens
      */
-    function StarbaseCrowdsale(address workshopAddr, address starbaseEpAddr) {
-        require(workshopAddr != 0 && starbaseEpAddr != 0);
-
+    function StarbaseCrowdsale(address starbaseEpAddr) {
+        require(starbaseEpAddr != 0);
         owner = msg.sender;
-        workshop = workshopAddr;
         starbaseEpAmendment = StarbaseEarlyPurchaseAmendment(starbaseEpAddr);
     }
 
@@ -168,7 +163,7 @@ contract StarbaseCrowdsale is Ownable {
      */
 
     /**
-     * @dev Setup function sets external contracts' addresses.
+     * @dev Setup function sets external contracts' addresses and set the max crowdsale cap
      * @param starbaseTokenAddress Token address.
      * @param _purchaseStartBlock Block number to start crowdsale
      */
@@ -180,6 +175,12 @@ contract StarbaseCrowdsale is Ownable {
         assert(address(starbaseToken) == 0);
         starbaseToken = AbstractStarbaseToken(starbaseTokenAddress);
         purchaseStartBlock = _purchaseStartBlock;
+
+        totalAmountOfEarlyPurchasesInCny = totalAmountOfEarlyPurchases();
+        // set the max cap of this crowdsale
+        maxCrowdsaleCap = SafeMath.sub(MAX_CAP, totalAmountOfEarlyPurchasesInCny);
+        assert(maxCrowdsaleCap > 0);
+
         return true;
     }
 
@@ -210,7 +211,7 @@ contract StarbaseCrowdsale is Ownable {
         uint256 bonusTier = getBonusTier();
         uint amount = recordPurchase(purchaser, rawAmount, purchasedAt, data, bonusTier);
 
-        StarBasePurchasedOffChain(purchaser, amount, rawAmount, cnyBtcRate, bonusTier, data);
+        StarbasePurchasedOffChain(purchaser, amount, rawAmount, cnyBtcRate, bonusTier, data);
         return true;
     }
 
@@ -254,7 +255,7 @@ contract StarbaseCrowdsale is Ownable {
     }
 
     /**
-     * @dev Allow for the possibilyt for contract owner to start crowdsale
+     * @dev Allow for the possibility for contract owner to start crowdsale
      */
     function ownerStartsCrowdsale(uint256 timestamp)
         external
@@ -274,133 +275,75 @@ contract StarbaseCrowdsale is Ownable {
         onlyOwner
     {
         assert(timestamp > 0 && timestamp <= now);
-        assert(endedAt == 0);   // overwriting time is not permitted
+        assert(block.number > purchaseStartBlock && endedAt == 0);   // cannot end before it starts and overwriting time is not permitted
         endedAt = timestamp;
+        totalAmountOfEarlyPurchasesInCny = totalAmountOfEarlyPurchases();
+        totalAmountOfPurchasesInCny = totalRaisedAmountInCny();
         CrowdsaleEnded(endedAt);
-    }
-
-    /**
-     * @dev Invalidate a crowdsale purchase if something is wrong with it
-     * @param purchaseIdx Index number of the crowdsalePurchases to invalidate
-     */
-    function invalidatePurchase(uint256 purchaseIdx)
-        external
-        onlyOwner
-        whenEnded
-        tokensNotDelivered
-        returns (bool)
-    {
-        CrowdsalePurchase memory purchase = crowdsalePurchases[purchaseIdx];
-        assert(purchase.purchaser != 0 && purchase.amount != 0);
-
-        crowdsalePurchases[purchaseIdx].amount = 0;
-        crowdsalePurchases[purchaseIdx].rawAmount = 0;
-        invalidatedOrigPurchases[purchaseIdx] = purchase;
-        PurchaseInvalidated(purchaseIdx);
-        return true;
-    }
-
-    /**
-     * @dev Amend a crowdsale purchase if something is wrong with it
-     * @param purchaseIdx Index number of the crowdsalePurchases to invalidate
-     * @param purchaser Address of the buyer
-     * @param amount Purchased tokens as per the CNY rate used
-     * @param rawAmount Purchased tokens as per the CNY rate used without the bonus
-     * @param purchasedAt Timestamp at the purchase made
-     * @param data Identifier as an evidence of the purchase (e.g. btc:1xyzxyz)
-     * @param bonus bonus milestones of the purchase
-     */
-    function amendPurchase(
-        uint256 purchaseIdx,
-        address purchaser,
-        uint256 amount,
-        uint256 rawAmount,
-        uint256 purchasedAt,
-        string data,
-        uint256 bonus
-    )
-        external
-        onlyOwner
-        whenEnded
-        tokensNotDelivered
-        returns (bool)
-    {
-        CrowdsalePurchase memory purchase = crowdsalePurchases[purchaseIdx];
-        assert(purchase.purchaser != 0 && purchase.amount != 0);
-
-        amendedOrigPurchases[purchaseIdx] = purchase;
-        crowdsalePurchases[purchaseIdx] =
-            CrowdsalePurchase(purchaser, amount, rawAmount, purchasedAt, data, bonus);
-        PurchaseAmended(purchaseIdx);
-        return true;
     }
 
     /**
      * @dev Deliver tokens to purchasers according to their purchase amount in CNY
      */
-    function deliverPurchasedTokens()
+    function withdrawPurchasedTokens()
         external
-        onlyOwner
         whenEnded
         returns (bool)
     {
         assert(earlyPurchasesLoaded);
         assert(address(starbaseToken) != 0);
 
-        uint256 totalAmountOfPurchasesInCny = totalRaisedAmountInCny(); // totalPreSale + totalCrowdsale
+        /*
+         * “Value” refers to the contribution of the User:
+         *  {crowdsale_purchaser_token_amount} =
+         *  {crowdsale_token_amount} * {crowdsalePurchase_value} / {earlypurchase_value} + {crowdsale_value}.
+         *
+         * Example: If a User contributes during the Contribution Period 100 CNY (including applicable
+         * Bonus, if any) and the total amount early purchases amounts to 6’000’000 CNY
+         * and total amount raised during the Contribution Period is 30’000’000, then he will get
+         * 347.22 STAR = 125’000’000 STAR * 100 CNY / 30’000’000 CNY + 6’000’000 CNY.
+        */
 
-        for (uint256 i = numOfDeliveredCrowdsalePurchases; i < crowdsalePurchases.length && msg.gas > 200000; i++) {
-            CrowdsalePurchase memory purchase = crowdsalePurchases[i];
-            if (purchase.amount == 0) {
-                continue;   // skip invalidated purchase
-            }
+        if (crowdsalePurchaseAmountBy[msg.sender] > 0) {
+            uint256 crowdsalePurchaseValue = crowdsalePurchaseAmountBy[msg.sender];
+            crowdsalePurchaseAmountBy[msg.sender] = 0;
 
-            /*
-             * “Value” refers to the contribution of the User:
-             *  {crowdsale_purchaser_token_amount} =
-             *  {crowdsale_token_amount} * {crowdsalePurchase_value} / {earlypurchase_value} + {crowdsale_value}.
-             *
-             * Example: If a User contributes during the Contribution Period 100 CNY (including applicable
-             * Bonus, if any) and the total amount early purchases amounts to 6’000’000 CNY
-             * and total amount raised during the Contribution Period is 30’000’000, then he will get
-             * 347.22 STAR = 125’000’000 STAR * 100 CNY / 30’000’000 CNY + 6’000’000 CNY.
-            */
+            uint256 tokenCount =
+                SafeMath.mul(crowdsaleTokenAmount, crowdsalePurchaseValue) /
+                totalAmountOfPurchasesInCny;
 
-            uint256 crowdsalePurchaseValue = purchase.amount;
-            uint256 tokenCount = SafeMath.mul(crowdsaleTokenAmount, crowdsalePurchaseValue) / totalAmountOfPurchasesInCny;
-
-            numOfPurchasedTokensOnCsBy[purchase.purchaser] = SafeMath.add(numOfPurchasedTokensOnCsBy[purchase.purchaser], tokenCount);
-            starbaseToken.allocateToCrowdsalePurchaser(purchase.purchaser, tokenCount);
-            numOfDeliveredCrowdsalePurchases = SafeMath.add(i, 1);
+            numOfPurchasedTokensOnCsBy[msg.sender] =
+                SafeMath.add(numOfPurchasedTokensOnCsBy[msg.sender], tokenCount);
+            assert(starbaseToken.allocateToCrowdsalePurchaser(msg.sender, tokenCount));
+            numOfDeliveredCrowdsalePurchases++;
         }
 
-        for (uint256 j = numOfDeliveredEarlyPurchases; j < earlyPurchasers.length && msg.gas > 200000; j++) {
-            address earlyPurchaser = earlyPurchasers[j];
+        /*
+         * “Value” refers to the contribution of the User:
+         * {earlypurchaser_token_amount} =
+         * {earlypurchaser_token_amount} * ({earlypurchase_value} / {total_earlypurchase_value})
+         *  + {crowdsale_token_amount} * ({earlypurchase_value} / {earlypurchase_value} + {crowdsale_value}).
+         *
+         * Example: If an Early Purchaser contributes 100 CNY (including Bonus of 20%) and the
+         * total amount of early purchases amounts to 6’000’000 CNY and the total amount raised
+         * during the Contribution Period is 30’000’000 CNY, then he will get 1180.55 STAR =
+         * 50’000’000 STAR * 100 CNY / 6’000’000 CNY + 125’000’000 STAR * 100 CNY /
+         * 30’000’000 CNY + 6’000’000 CNY
+         */
 
-            /*
-             * “Value” refers to the contribution of the User:
-             * {earlypurchaser_token_amount} =
-             * {earlypurchaser_token_amount} * ({earlypurchase_value} / {total_earlypurchase_value})
-             *  + {crowdsale_token_amount} * ({earlypurchase_value} / {earlypurchase_value} + {crowdsale_value}).
-             *
-             * Example: If an Early Purchaser contributes 100 CNY (including Bonus of 20%) and the
-             * total amount of early purchases amounts to 6’000’000 CNY and the total amount raised
-             * during the Contribution Period is 30’000’000 CNY, then he will get 1180.55 STAR =
-             * 50’000’000 STAR * 100 CNY / 6’000’000 CNY + 125’000’000 STAR * 100 CNY /
-             * 30’000’000 CNY + 6’000’000 CNY
-             */
+        if (earlyPurchasedAmountBy[msg.sender] > 0) {  // skip if is not an early purchaser
+            uint256 earlyPurchaserPurchaseValue = earlyPurchasedAmountBy[msg.sender];
+            earlyPurchasedAmountBy[msg.sender] = 0;
 
-            uint256 earlyPurchaserPurchaseValue = earlyPurchasedAmountBy[earlyPurchaser];
-
-            uint256 epTokenCalculationFromEPTokenAmount = SafeMath.mul(earlyPurchaseTokenAmount, earlyPurchaserPurchaseValue) / totalAmountOfEarlyPurchases();
+            uint256 epTokenCalculationFromEPTokenAmount = SafeMath.mul(earlyPurchaseTokenAmount, earlyPurchaserPurchaseValue) / totalAmountOfEarlyPurchasesInCny;
 
             uint256 epTokenCalculationFromCrowdsaleTokenAmount = SafeMath.mul(crowdsaleTokenAmount, earlyPurchaserPurchaseValue) / totalAmountOfPurchasesInCny;
 
             uint256 epTokenCount = SafeMath.add(epTokenCalculationFromEPTokenAmount, epTokenCalculationFromCrowdsaleTokenAmount);
 
-            numOfPurchasedTokensOnEpBy[earlyPurchaser] = SafeMath.add(numOfPurchasedTokensOnEpBy[earlyPurchaser], epTokenCount);
-            starbaseToken.allocateToCrowdsalePurchaser(earlyPurchaser, epTokenCount);
-            numOfDeliveredEarlyPurchases = SafeMath.add(j, 1);
+            numOfPurchasedTokensOnEpBy[msg.sender] = SafeMath.add(numOfPurchasedTokensOnEpBy[msg.sender], epTokenCount);
+            assert(starbaseToken.allocateToCrowdsalePurchaser(msg.sender, epTokenCount));
+            numOfDeliveredEarlyPurchases++;
         }
 
         return true;
@@ -420,6 +363,7 @@ contract StarbaseCrowdsale is Ownable {
 
         for (uint256 i = numOfLoadedEarlyPurchases; i < numOfOrigEp && msg.gas > 200000; i++) {
             if (starbaseEpAmendment.isInvalidEarlyPurchase(i)) {
+                numOfLoadedEarlyPurchases = SafeMath.add(numOfLoadedEarlyPurchases, 1);
                 continue;
             }
             var (purchaser, amount,) =
@@ -434,11 +378,12 @@ contract StarbaseCrowdsale is Ownable {
                 uint256 bonus = SafeMath.mul(amount, 20) / 100;
                 uint256 amountWithBonus = SafeMath.add(amount, bonus);
 
-                earlyPurchasedAmountBy[purchaser] += amountWithBonus;
+                earlyPurchasedAmountBy[purchaser] = SafeMath.add(earlyPurchasedAmountBy[purchaser], amountWithBonus);
             }
+
+            numOfLoadedEarlyPurchases = SafeMath.add(numOfLoadedEarlyPurchases, 1);
         }
 
-        numOfLoadedEarlyPurchases += i;
         assert(numOfLoadedEarlyPurchases <= numOfOrigEp);
         if (numOfLoadedEarlyPurchases == numOfOrigEp) {
             earlyPurchasesLoaded = true;    // enable the flag
@@ -554,7 +499,7 @@ contract StarbaseCrowdsale is Ownable {
             sendQualifiedPartnerCommissionFee(msg.sender, msg.value);
         }
 
-        StarBasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate, bonusTier);
+        StarbasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate, bonusTier);
         return true;
     }
 
@@ -579,7 +524,7 @@ contract StarbaseCrowdsale is Ownable {
         uint256 rawAmount = SafeMath.mul(msg.value, cnyEthRate) / 1e18;
         uint amount = recordPurchase(msg.sender, rawAmount, now, '', bonusTier);
 
-        StarBasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate, bonusTier);
+        StarbasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate, bonusTier);
         return true;
     }
 
@@ -632,13 +577,13 @@ contract StarbaseCrowdsale is Ownable {
         // presale transfers which occurs before the crowdsale ignores the crowdsale hard cap
         if (block.number >= purchaseStartBlock) {
 
-            assert(totalAmountOfCrowdsalePurchasesWithoutBonus() <= MAX_CROWDSALE_CAP);
+            assert(totalAmountOfCrowdsalePurchasesWithoutBonus() <= maxCrowdsaleCap);
 
             uint256 crowdsaleTotalAmountAfterPurchase = SafeMath.add(totalAmountOfCrowdsalePurchasesWithoutBonus(), amount);
 
             // check whether purchase goes over the cap and send the difference back to the purchaser.
-            if (crowdsaleTotalAmountAfterPurchase > MAX_CROWDSALE_CAP) {
-              uint256 difference = SafeMath.sub(crowdsaleTotalAmountAfterPurchase, MAX_CROWDSALE_CAP);
+            if (crowdsaleTotalAmountAfterPurchase > maxCrowdsaleCap) {
+              uint256 difference = SafeMath.sub(crowdsaleTotalAmountAfterPurchase, maxCrowdsaleCap);
               uint256 ethValueToReturn = SafeMath.mul(difference, 1e18) / cnyEthRate;
               purchaser.transfer(ethValueToReturn);
               amount = SafeMath.sub(amount, difference);
@@ -652,6 +597,7 @@ contract StarbaseCrowdsale is Ownable {
 
         CrowdsalePurchase memory purchase = CrowdsalePurchase(purchaser, amount, rawAmount, timestamp, data, bonusTier);
         crowdsalePurchases.push(purchase);
+        crowdsalePurchaseAmountBy[purchaser] = SafeMath.add(crowdsalePurchaseAmountBy[purchaser], amount);
         return amount;
     }
 
