@@ -3,8 +3,6 @@ if (!process.env.NODE_CONFIG_DIR && process.cwd().endsWith('/migrations')) {
 }
 const config = require('../node_modules/config')
 const companyAddr = config.get('Ethereum.address.company')
-const csWorkshopAddr = config.get('Ethereum.address.crowdsaleWorkshop')
-const mkWorkshopAddr = config.get('Ethereum.address.marketingCampaignWorkshop')
 const starbaseEpaAddr = config.get('Ethereum.address.starbaseEarlyPurchaseAmendment')
 const StarbaseToken = artifacts.require('./StarbaseToken.sol');
 const StarbaseCrowdsale = artifacts.require('./StarbaseCrowdsale.sol');
@@ -16,11 +14,10 @@ module.exports = (deployer) => {
     return Promise.all([
       deployer.deploy(
         StarbaseCrowdsale,
-        csWorkshopAddr,
         starbaseEpaAddr
           ? starbaseEpaAddr
           : StarbaseEarlyPurchaseAmendment.address),
-      deployer.deploy(StarbaseMarketingCampaign, mkWorkshopAddr)
+      deployer.deploy(StarbaseMarketingCampaign)
     ])
   }).then(() => {
     return deployer.deploy(
