@@ -15,12 +15,9 @@ contract('StarbaseToken', accounts => {
   const ec1 = eth.accounts[1] // early contributor
   const ec2 = eth.accounts[2]
   const company = eth.accounts[3]
-  const csWorkshop = eth.accounts[4]
-  const mkgWorkshop = eth.accounts[5]
-  const fundWorkshop = eth.accounts[6]
-  const ep1 = eth.accounts[7]
-  const cs1 = eth.accounts[8]
-  const someone = eth.accounts[9]
+  const ep1 = eth.accounts[4]
+  const cs1 = eth.accounts[5]
+  const someone = eth.accounts[6]
 
   let crowdsale
   let mkgCampaign
@@ -36,7 +33,7 @@ contract('StarbaseToken', accounts => {
 
   const newCrowdsale = (customEpa) => {
     if (customEpa) {
-      return StarbaseCrowdsale.new(csWorkshop, customEpa.address)
+      return StarbaseCrowdsale.new(customEpa.address)
     } else {
       let ep, epa
       return StarbaseEarlyPurchase.new().then(x => {
@@ -48,7 +45,7 @@ contract('StarbaseToken', accounts => {
         epa = x
         epa.loadStarbaseEarlyPurchases(ep.address)
       }).then(() => {
-        return StarbaseCrowdsale.new(csWorkshop, epa.address)
+        return StarbaseCrowdsale.new(epa.address)
       })
     }
   }
@@ -73,15 +70,15 @@ contract('StarbaseToken', accounts => {
     assert.equal(balance.toNumber(), 750000000e+18)
   })
 
-  it('should have 17.5M tokens allocated to the crowdsale workshop initially', async () => {
+  it('should have 17.5M tokens allocated to the crowdsale contract initially', async () => {
     const token = await newToken()
-    const balance = await token.balanceOf.call(await crowdsale.workshop.call())
+    const balance = await token.balanceOf.call(crowdsale.address)
     assert.equal(balance.toNumber(), 175000000e+18)
   })
 
-  it('should have 12.5M tokens allocated to the marketing campaign workshop initially', async () => {
+  it('should have 12.5M tokens allocated to the marketing campaign contract initially', async () => {
     const token = await newToken()
-    const balance = await token.balanceOf.call(await mkgCampaign.workshop.call())
+    const balance = await token.balanceOf.call(mkgCampaign.address)
     assert.equal(balance.toNumber(), 12500000e+18)
   })
 
@@ -219,6 +216,86 @@ contract('StarbaseToken', accounts => {
     assert.equal(balance.toNumber(), 750000000e+18) // no trasfered tokens
   })
 
+  describe('setting up token contract', () => {
+      it('lets fundraiser to change crowdsale and marketing contracts which are connected to token', async () => {
+          const token = await newToken(crowdsale, mkgCampaign)
+          const previousCSAddress = crowdsale.address
+          const cs = await newCrowdsale()
+          const newCSAddress = cs.address
+          assert.equal(await token.starbaseCrowdsale(), previousCSAddress)
+
+          const previousMkgCampaignAddress = mkgCampaign.address
+          const newMkgCampaign = await StarbaseMarketingCampaign.new()
+          const newMkgCampaignAddress = newMkgCampaign.address
+          assert.equal(await token.starbaseMarketingCampaign(), previousMkgCampaignAddress)
+
+          await token.setup(newCSAddress, newMkgCampaignAddress)
+
+          assert.equal(await token.starbaseCrowdsale(), newCSAddress)
+          assert.equal(await token.starbaseMarketingCampaign(), newMkgCampaignAddress)
+
+          assert.equal((await token.balanceOf.call(previousCSAddress)).toNumber(), 0)
+          assert.equal((await token.balanceOf.call(newCSAddress)).toNumber(), 175000000e+18)
+          assert.equal((await token.balanceOf.call(previousMkgCampaignAddress)).toNumber(), 0)
+          assert.equal((await token.balanceOf.call(newMkgCampaignAddress)).toNumber(), 12500000e+18)
+      })
+
+      it('does NOT a non-fundraiser to change crowdsale and marketing contracts which are connected to token', async () => {
+          const token = await newToken(crowdsale, mkgCampaign)
+          const previousCSAddress = crowdsale.address
+          const cs = await newCrowdsale()
+          const newCSAddress = cs.address
+          assert.equal(await token.starbaseCrowdsale(), previousCSAddress)
+
+          const previousMkgCampaignAddress = mkgCampaign.address
+          const newMkgCampaign = await StarbaseMarketingCampaign.new()
+          const newMkgCampaignAddress = newMkgCampaign.address
+          assert.equal(await token.starbaseMarketingCampaign(), previousMkgCampaignAddress)
+
+          try {
+              await token.setup.sendTransaction(newCSAddress, newMkgCampaignAddress, { from: ep1 } )
+              assert.fail()
+          } catch(e) {
+              utils.ensuresException(e)
+          }
+
+          assert.equal(await token.starbaseCrowdsale(), previousCSAddress)
+          assert.equal(await token.starbaseMarketingCampaign(), previousMkgCampaignAddress)
+
+          assert.equal((await token.balanceOf.call(previousCSAddress)).toNumber(), 175000000e+18)
+          assert.equal((await token.balanceOf.call(newCSAddress)).toNumber(), 0)
+          assert.equal((await token.balanceOf.call(previousMkgCampaignAddress)).toNumber(), 12500000e+18)
+          assert.equal((await token.balanceOf.call(newMkgCampaignAddress)).toNumber(), 0)
+      })
+
+      it('does NOT allow to change the addresses of crowdsale and marketing contracts after the crowdsale started', async () => {
+          const previousCS = await newCrowdsale()
+          const token = await newToken(previousCS, mkgCampaign)
+          const newCS = await newCrowdsale()
+          assert.equal(await token.starbaseCrowdsale(), previousCS.address)
+
+          const previousMkgCampaignAddress = mkgCampaign.address
+          const newMkgCampaign = await StarbaseMarketingCampaign.new()
+          assert.equal(await token.starbaseMarketingCampaign(), previousMkgCampaignAddress)
+
+          await previousCS.ownerStartsCrowdsale(utils.getBlockNow())
+          try {
+              await token.setup.sendTransaction(newCS.address, newMkgCampaign.address)
+              assert.fail()
+          } catch(e) {
+              utils.ensuresException(e)
+          }
+
+          assert.equal(await token.starbaseCrowdsale(), previousCS.address)
+          assert.equal(await token.starbaseMarketingCampaign(), previousMkgCampaignAddress)
+
+          assert.equal((await token.balanceOf.call(previousCS.address)).toNumber(), 175000000e+18)
+          assert.equal((await token.balanceOf.call(newCS.address)).toNumber(), 0)
+          assert.equal((await token.balanceOf.call(previousMkgCampaignAddress)).toNumber(), 12500000e+18)
+          assert.equal((await token.balanceOf.call(newMkgCampaign.address)).toNumber(), 0)
+      })
+  })
+
   describe('Public Offering Plan', () => {
     // function alias
     const now = () => utils.getBlockNow()
@@ -231,7 +308,7 @@ contract('StarbaseToken', accounts => {
 
       const unlockCompanysTokensAt = now() + secsInMonths(2) - 5  // less than 2 months
       try {
-        await token.declarePulicOfferingPlan(1000e+18, unlockCompanysTokensAt)
+        await token.declarePublicOfferingPlan(1000e+18, unlockCompanysTokensAt)
       } catch (err) {
         utils.ensuresException(err)
       }
@@ -247,7 +324,7 @@ contract('StarbaseToken', accounts => {
 
       const unlockCompanysTokensAt = now() + secsInMonths(2) + 5  // more than 2 months
       try {
-        await token.declarePulicOfferingPlan(1000e+18, unlockCompanysTokensAt)
+        await token.declarePublicOfferingPlan(1000e+18, unlockCompanysTokensAt)
       } catch (err) {
         utils.ensuresException(err)
       }
@@ -262,11 +339,11 @@ contract('StarbaseToken', accounts => {
       await timer(secsInMonths(6), { mine: true }) // wait 6 months
 
       const unlockCompanysTokensAt = now() + secsInMonths(2) + 5  // 6 months + more than 2 months
-      await token.declarePulicOfferingPlan(1000e+18, unlockCompanysTokensAt)
+      await token.declarePublicOfferingPlan(1000e+18, unlockCompanysTokensAt)
       await timer(secsInMonths(6) - 5, { mine: true }) // wait less than 6 months
 
       try {
-        await token.declarePulicOfferingPlan(500e+18, now() + secsInMonths(2) + 5)
+        await token.declarePublicOfferingPlan(500e+18, now() + secsInMonths(2) + 5)
       } catch (err) {
         utils.ensuresException(err)
       }
@@ -282,7 +359,7 @@ contract('StarbaseToken', accounts => {
 
       const watcher = token.PublicOfferingPlanDeclared()
       const unlockCompanysTokensAt1 = now() + secsInMonths(2) + 5 // wait more than 6 months
-      await token.declarePulicOfferingPlan(1000e+18, unlockCompanysTokensAt1)
+      await token.declarePublicOfferingPlan(1000e+18, unlockCompanysTokensAt1)
 
       assert.equal((await token.numOfDeclaredPublicOfferingPlans.call()).toNumber(), 1)
       const plan1 = await token.publicOfferingPlans.call(0)
@@ -298,7 +375,7 @@ contract('StarbaseToken', accounts => {
       await timer(secsInMonths(6), { mine: true }) // wait 6 months for the 2nd declaration
 
       const unlockCompanysTokensAt2 = now() + secsInMonths(2) + 5
-      await token.declarePulicOfferingPlan(500e+18, unlockCompanysTokensAt2)
+      await token.declarePublicOfferingPlan(500e+18, unlockCompanysTokensAt2)
 
       assert.equal((await token.numOfDeclaredPublicOfferingPlans.call()).toNumber(), 2)
       const plan2 = await token.publicOfferingPlans.call(1)
@@ -319,7 +396,7 @@ contract('StarbaseToken', accounts => {
       await timer(secsInMonths(6), { mine: true }) // wait 6 months
 
       // 1st declaration
-      await token.declarePulicOfferingPlan(1000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(1000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(2) + 5, { mine: true }) // leap the time to unlock the tokens
 
       const transferableTokens =
@@ -342,14 +419,14 @@ contract('StarbaseToken', accounts => {
       await timer(secsInMonths(6), { mine: true })  // leap the time to declare the 2nd PO
 
       // 2nd declaration
-      await token.declarePulicOfferingPlan(2000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(2000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(2) + 5, { mine: true })
       assert.equal((await token.numOfTransferableCompanysTokens.call()).toNumber(), 2000e+18)
 
       await timer(secsInMonths(6), { mine: true })  // leap the time to declare the 3rd PO
 
       // 3rd declaration
-      await token.declarePulicOfferingPlan(3000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(3000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(2) + 5, { mine: true })
       assert.equal((await token.numOfTransferableCompanysTokens.call()).toNumber(), 5000e+18)
     })
@@ -361,7 +438,7 @@ contract('StarbaseToken', accounts => {
       await timer(secsInMonths(6), { mine: true }) // wait 6 months
 
       try {
-        await token.declarePulicOfferingPlan(100000001e+18, now() + secsInMonths(2) + 5)
+        await token.declarePublicOfferingPlan(100000001e+18, now() + secsInMonths(2) + 5)
       } catch (err) {
         utils.ensuresException(err)
       }
@@ -374,26 +451,26 @@ contract('StarbaseToken', accounts => {
       await cs.endCrowdsale(now())
       await timer(secsInMonths(6), { mine: true }) // wait 6 months
 
-      await token.declarePulicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(6), { mine: true })  // leap to declare another PO
-      await token.declarePulicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(6), { mine: true })
-      await token.declarePulicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(6), { mine: true })
-      await token.declarePulicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(6), { mine: true })
-      await token.declarePulicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(6), { mine: true })
-      await token.declarePulicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(6), { mine: true })
-      await token.declarePulicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(100000000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(6), { mine: true })
-      await token.declarePulicOfferingPlan(50000000e+18, now() + secsInMonths(2) + 5)
+      await token.declarePublicOfferingPlan(50000000e+18, now() + secsInMonths(2) + 5)
       await timer(secsInMonths(2) + 5, { mine: true })  // leap to unlock the tokens
       assert.equal((await token.numOfTransferableCompanysTokens.call()).toNumber(), 750000000e+18)
 
       try {
-        await token.declarePulicOfferingPlan(1, now() + secsInMonths(6) + 5)
+        await token.declarePublicOfferingPlan(1, now() + secsInMonths(6) + 5)
       } catch (err) {
         utils.ensuresException(err)
       }
@@ -416,9 +493,8 @@ contract('StarbaseToken', accounts => {
     assert.equal((await token.balanceOf(cs1)).toNumber(), 0)
     assert.equal(await token.isTransferable(cs1, 1), false)
 
-    await cs.deliverPurchasedTokens()
-    assert.equal((await token.balanceOf(csWorkshop)).toNumber(), 5e+25)
-    174950019.9920032e+18
+    await cs.withdrawPurchasedTokens({ from: cs1 })
+    assert.equal((await token.balanceOf(cs.address)).toNumber(), 5e+25)
     assert.equal((await token.balanceOf(cs1)).toNumber(), 1.25e+26)
     assert.equal(await token.isTransferable(cs1, 1), false) // should be locked up
   })
@@ -435,8 +511,8 @@ contract('StarbaseToken', accounts => {
     const now = utils.getBlockNow() // base timestamp off the blockchain
     await cs.endCrowdsale(now - (86400 * 7))  // 7 days ago
 
-    await cs.deliverPurchasedTokens()
-    assert.equal((await token.balanceOf(csWorkshop)).toNumber(), 5e+25)
+    await cs.withdrawPurchasedTokens({ from: cs1 })
+    assert.equal((await token.balanceOf(cs.address)).toNumber(), 5e+25)
     assert.equal((await token.balanceOf(cs1)).toNumber(), 1.25e+26)
     assert.equal(await token.isTransferable(cs1, 1), true)  // should be unlocked
   })
@@ -459,7 +535,8 @@ contract('StarbaseToken', accounts => {
     await cs.purchaseWithEth({ from: cs1, value: 1e+18 })
     await cs.endCrowdsale(utils.getBlockNow() - (86400 * 14) + 10)  // less than 14 days ago
 
-    await cs.deliverPurchasedTokens()
+    await cs.withdrawPurchasedTokens({ from: cs1 })
+    await cs.withdrawPurchasedTokens({ from: ep1 })
     assert.equal((await token.balanceOf(ep1)).toNumber(), 6.25e+25)
     assert.equal((await token.balanceOf(cs1)).toNumber(), 6.25e+25)
 
@@ -495,7 +572,8 @@ contract('StarbaseToken', accounts => {
     await cs.purchaseWithEth({ from: cs1, value: 1e+18 })
     await cs.endCrowdsale(utils.getBlockNow() - (86400 * 14))  // 14 days ago
 
-    await cs.deliverPurchasedTokens()
+    await cs.withdrawPurchasedTokens({ from: cs1 })
+    await cs.withdrawPurchasedTokens({ from: ep1 })
     assert.equal((await token.balanceOf(ep1)).toNumber(), 6.25e+25)
     assert.equal((await token.balanceOf(cs1)).toNumber(), 6.25e+25)
 
@@ -511,7 +589,7 @@ contract('StarbaseToken', accounts => {
     await cs.setup(token.address, web3.eth.blockNumber)
     await cs.loadEarlyPurchases()
     await cs.endCrowdsale(3 * 30 * 86400)  // 3 months ago
-    await cs.deliverPurchasedTokens()
+    await cs.withdrawPurchasedTokens()
 
     assert.equal((await token.mvpLaunchedAt()).toNumber(), 0)
 
@@ -538,7 +616,8 @@ contract('StarbaseToken', accounts => {
       await cs.updateCnyEthRate(2000)
       await cs.purchaseWithEth({ from: ec1, value: 1e+18 })
       await cs.endCrowdsale(utils.getBlockNow() - 7 * 86400)  // a week ago
-      await cs.deliverPurchasedTokens()
+
+      await cs.withdrawPurchasedTokens({ from: ec1 })
       assert.equal((await token.balanceOf(ec1)).toNumber(), 1.250001e+26)
       assert.equal((await token.balanceOf(someone)).toNumber(), 0)
       assert.equal((await token.numOfUntransferableEcTokens(ec1)).toNumber(), 100e+18)
@@ -563,7 +642,7 @@ contract('StarbaseToken', accounts => {
       await cs.setup(token.address, web3.eth.blockNumber)
       await cs.loadEarlyPurchases()
       await cs.endCrowdsale(now - 365 * 1.5 * 86400)  // a year and half ago
-      await cs.deliverPurchasedTokens()
+      await cs.withdrawPurchasedTokens()
       assert.equal((await token.balanceOf(ec1)).toNumber(), 5200e+18)
       assert.equal((await token.balanceOf(someone)).toNumber(), 0)
 
@@ -591,7 +670,7 @@ contract('StarbaseToken', accounts => {
       await cs.setup(token.address, web3.eth.blockNumber)
       await cs.loadEarlyPurchases()
       await cs.endCrowdsale(now - 365 * 2.5 * 86400)  // two years and half ago
-      await cs.deliverPurchasedTokens()
+      await cs.withdrawPurchasedTokens()
       assert.equal((await token.balanceOf(ec1)).toNumber(), 5200e+18)
       assert.equal((await token.balanceOf(someone)).toNumber(), 0)
 

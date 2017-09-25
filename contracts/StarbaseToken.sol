@@ -49,7 +49,8 @@ contract StarbaseToken is StandardToken {
     uint8 constant public decimals = 18;
     uint256 constant public initialSupply = 1000000000e18; // 1B STAR tokens
     uint256 constant public initialCompanysTokenAllocation = 750000000e18;  // 750M
-
+    uint256 constant public initialBalanceForCrowdsale = 175000000e18;  // CS(125M)+EP(50M)
+    uint256 constant public initialBalanceForMarketingCampaign = 12500000e18;   // 12.5M
 
     /*
      *  Modifiers
@@ -67,6 +68,16 @@ contract StarbaseToken is StandardToken {
     modifier onlyFundraiser() {
         // Only rightful fundraiser is permitted.
         assert(isFundraiser(msg.sender));
+        _;
+    }
+
+    modifier onlyBeforeCrowdsale() {
+        require(starbaseCrowdsale.startDate() == 0);
+        _;
+    }
+
+    modifier onlyAfterCrowdsale() {
+        require(starbaseCrowdsale.isEnded());
         _;
     }
 
@@ -100,10 +111,10 @@ contract StarbaseToken is StandardToken {
         LogNewFundraiser(msg.sender, true);
 
         // Tokens for crowdsale and early purchasers
-        balances[starbaseCrowdsale.workshop()] = 175000000e18; // CS(125M)+EP(50M)
+        balances[address(starbaseCrowdsale)] = initialBalanceForCrowdsale;
 
         // Tokens for marketing campaign supporters
-        balances[starbaseMarketingCampaign.workshop()] = 12500000e18; // 12.5M
+        balances[address(starbaseMarketingCampaign)] = initialBalanceForMarketingCampaign;
 
         // Tokens for early contributors, should be allocated by function
         balances[0] = 62500000e18; // 62.5M
@@ -112,6 +123,33 @@ contract StarbaseToken is StandardToken {
         balances[starbaseCompanyAddr] = initialCompanysTokenAllocation; // 750M
 
         totalSupply = initialSupply;    // 1B
+    }
+
+    /**
+     * @dev Setup function sets external contracts' addresses
+     * @param starbaseCrowdsaleAddr Crowdsale contract address.
+     * @param starbaseMarketingCampaignAddr Marketing campaign contract address
+     */
+    function setup(address starbaseCrowdsaleAddr, address starbaseMarketingCampaignAddr)
+        external
+        onlyFundraiser
+        onlyBeforeCrowdsale
+        returns (bool)
+    {
+        require(starbaseCrowdsaleAddr != 0 && starbaseMarketingCampaignAddr != 0);
+        assert(balances[address(starbaseCrowdsale)] == initialBalanceForCrowdsale);
+        assert(balances[address(starbaseMarketingCampaign)] == initialBalanceForMarketingCampaign);
+
+        // Move the balances to the new ones
+        balances[address(starbaseCrowdsale)] = 0;
+        balances[address(starbaseMarketingCampaign)] = 0;
+        balances[starbaseCrowdsaleAddr] = initialBalanceForCrowdsale;
+        balances[starbaseMarketingCampaignAddr] = initialBalanceForMarketingCampaign;
+
+        // Update the references
+        starbaseCrowdsale = AbstractStarbaseCrowdsale(starbaseCrowdsaleAddr);
+        starbaseMarketingCampaign = AbstractStarbaseMarketingCampaign(starbaseMarketingCampaignAddr);
+        return true;
     }
 
     /*
@@ -134,9 +172,10 @@ contract StarbaseToken is StandardToken {
      * @param tokenCount Number of tokens to transfer.
      * @param unlockCompanysTokensAt Time of the tokens will be unlocked
      */
-    function declarePulicOfferingPlan(uint256 tokenCount, uint256 unlockCompanysTokensAt)
+    function declarePublicOfferingPlan(uint256 tokenCount, uint256 unlockCompanysTokensAt)
         external
-        onlyFundraiser()
+        onlyFundraiser
+        onlyAfterCrowdsale
         returns (bool)
     {
         assert(tokenCount <= 100000000e18);    // shall not exceed 100M tokens
@@ -152,7 +191,7 @@ contract StarbaseToken is StandardToken {
 
         uint256 totalDeclaredTokenCount = tokenCount;
         for (uint8 i; i < publicOfferingPlans.length; i++) {
-            totalDeclaredTokenCount += publicOfferingPlans[i].tokenCount;
+            totalDeclaredTokenCount = SafeMath.add(totalDeclaredTokenCount, publicOfferingPlans[i].tokenCount);
         }
         assert(totalDeclaredTokenCount <= initialCompanysTokenAllocation);   // shall not exceed the initial token allocation
 
@@ -172,7 +211,7 @@ contract StarbaseToken is StandardToken {
         onlyMarketingCampaignContract
         returns (bool)
     {
-        return allocateFrom(starbaseMarketingCampaign.workshop(), to, value);
+        return allocateFrom(address(starbaseMarketingCampaign), to, value);
     }
 
     /**
@@ -182,7 +221,7 @@ contract StarbaseToken is StandardToken {
      */
     function allocateToEarlyContributor(address to, uint256 value)
         external
-        onlyFundraiser()
+        onlyFundraiser
         returns (bool)
     {
         initialEcTokenAllocation[to] =
@@ -197,14 +236,15 @@ contract StarbaseToken is StandardToken {
      */
     function issueTokens(address _for, uint256 value)
         external
-        onlyFundraiser()
+        onlyFundraiser
+        onlyAfterCrowdsale
         returns (bool)
     {
         // check if the value under the limits
         assert(value <= numOfInflatableTokens());
 
         totalSupply = SafeMath.add(totalSupply, value);
-        balances[_for] += value;
+        balances[_for] = SafeMath.add(balances[_for], value);
         return true;
     }
 
@@ -212,7 +252,12 @@ contract StarbaseToken is StandardToken {
      * @dev Declares Starbase MVP has been launched
      * @param launchedAt When the MVP launched (timestamp)
      */
-    function declareMvpLaunched(uint256 launchedAt) external onlyFundraiser() returns (bool) {
+    function declareMvpLaunched(uint256 launchedAt)
+        external
+        onlyFundraiser
+        onlyAfterCrowdsale
+        returns (bool)
+    {
         require(mvpLaunchedAt == 0); // overwriting the launch date is not permitted
         require(launchedAt <= now);
         require(starbaseCrowdsale.isEnded());
@@ -230,9 +275,10 @@ contract StarbaseToken is StandardToken {
     function allocateToCrowdsalePurchaser(address to, uint256 value)
         external
         onlyCrowdsaleContract
+        onlyAfterCrowdsale
         returns (bool)
     {
-        return allocateFrom(starbaseCrowdsale.workshop(), to, value);
+        return allocateFrom(address(starbaseCrowdsale), to, value);
     }
 
     /*
@@ -362,7 +408,7 @@ contract StarbaseToken is StandardToken {
         for (uint8 i; i < publicOfferingPlans.length; i++) {
             PublicOfferingPlan memory plan = publicOfferingPlans[i];
             if (plan.unlockCompanysTokensAt <= now) {
-                unlockedTokens += plan.tokenCount;
+                unlockedTokens = SafeMath.add(unlockedTokens, plan.tokenCount);
             }
         }
         return SafeMath.sub(
@@ -406,15 +452,15 @@ contract StarbaseToken is StandardToken {
         uint256 passedYears = passedDays * 100 / 36525;    // about 365.25 days in a year
         uint256 inflatedSupply = initialSupply;
         for (uint256 i; i < passedYears; i++) {
-            inflatedSupply += SafeMath.mul(inflatedSupply, 25) / 1000; // 2.5%/y = 0.025/y
+            inflatedSupply = SafeMath.add(inflatedSupply, SafeMath.mul(inflatedSupply, 25) / 1000); // 2.5%/y = 0.025/y
         }
 
         uint256 remainderedDays = passedDays * 100 % 36525 / 100;
         if (remainderedDays > 0) {
             uint256 inflatableTokensOfNextYear =
                 SafeMath.mul(inflatedSupply, 25) / 1000;
-            inflatedSupply += SafeMath.mul(
-                inflatableTokensOfNextYear, remainderedDays * 100) / 36525;
+            inflatedSupply = SafeMath.add(inflatedSupply, SafeMath.mul(
+                inflatableTokensOfNextYear, remainderedDays * 100) / 36525);
         }
 
         return SafeMath.sub(inflatedSupply, totalSupply);
@@ -432,8 +478,8 @@ contract StarbaseToken is StandardToken {
      */
     function allocateFrom(address from, address to, uint256 value) internal returns (bool) {
         assert(value > 0 && balances[from] >= value);
-        balances[from] -= value;
-        balances[to] += value;
+        balances[from] = SafeMath.sub(balances[from], value);
+        balances[to] = SafeMath.add(balances[to], value);
         Transfer(from, to, value);
         return true;
     }
