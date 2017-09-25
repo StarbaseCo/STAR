@@ -10,7 +10,7 @@ contract('StarbaseEarlyPurchase', accounts => {
   const founder = eth.accounts[0]
   const account1 = eth.accounts[1]
   const account2 = eth.accounts[2]
-  const dummyAddr = eth.accounts[3] // dummy account
+  const company  = eth.accounts[3]
 
   const newEP = () => StarbaseEarlyPurchase.new()
   const currentTimestamp = () => Math.floor(Date.now() / 1000)
@@ -94,13 +94,13 @@ contract('StarbaseEarlyPurchase', accounts => {
 
   it('should not allow to append early purchases after Crowdsale started', async () => {
     const ep = await newEP()
-    const cs = await StarbaseCrowdsale.new(dummyAddr, ep.address)
+    const cs = await StarbaseCrowdsale.new(ep.address)
     await ep.setup(cs.address)
     await ep.appendEarlyPurchase(account1, 10000, currentTimestamp())
     assert.equal((await ep.numberOfEarlyPurchases.call()).toNumber(), 1)
 
-    const mkgCampaign = await StarbaseMarketingCampaign.new(dummyAddr)
-    const token = await StarbaseToken.new(dummyAddr, cs.address, mkgCampaign.address)
+    const mkgCampaign = await StarbaseMarketingCampaign.new()
+    const token = await StarbaseToken.new(company, cs.address, mkgCampaign.address)
     await cs.setup(token.address, web3.eth.blockNumber)
     await cs.updateCnyBtcRate(20000)
     await cs.recordOffchainPurchase(account2, 0, utils.getBlockNow(), 'btc:xxx') // starts the crowdsale
