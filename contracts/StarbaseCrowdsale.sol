@@ -172,7 +172,8 @@ contract StarbaseCrowdsale is Ownable {
         onlyOwner
         returns (bool)
     {
-        assert(address(starbaseToken) == 0);
+        require(starbaseTokenAddress != address(0));
+        require(address(starbaseToken) == 0);
         starbaseToken = AbstractStarbaseToken(starbaseTokenAddress);
         purchaseStartBlock = _purchaseStartBlock;
 
@@ -487,6 +488,7 @@ contract StarbaseCrowdsale is Ownable {
         returns (bool)
     {
         require(qualifiedPartners[msg.sender].bonaFide);
+        require(msg.value > 0);
         qualifiedPartners[msg.sender].amountRaised = SafeMath.add(msg.value, qualifiedPartners[msg.sender].amountRaised);
 
         assert(qualifiedPartners[msg.sender].amountRaised <= qualifiedPartners[msg.sender].amountCap);

@@ -211,6 +211,7 @@ contract StarbaseToken is StandardToken {
         onlyMarketingCampaignContract
         returns (bool)
     {
+        require(to != address(0));
         return allocateFrom(address(starbaseMarketingCampaign), to, value);
     }
 
@@ -224,6 +225,7 @@ contract StarbaseToken is StandardToken {
         onlyFundraiser
         returns (bool)
     {
+        require(to != address(0));
         initialEcTokenAllocation[to] =
             SafeMath.add(initialEcTokenAllocation[to], value);
         return allocateFrom(0, to, value);
@@ -240,6 +242,7 @@ contract StarbaseToken is StandardToken {
         onlyAfterCrowdsale
         returns (bool)
     {
+        require(_for != address(0));
         // check if the value under the limits
         assert(value <= numOfInflatableTokens());
 
@@ -278,6 +281,7 @@ contract StarbaseToken is StandardToken {
         onlyAfterCrowdsale
         returns (bool)
     {
+        require(to != address(0));
         return allocateFrom(address(starbaseCrowdsale), to, value);
     }
 
@@ -311,6 +315,7 @@ contract StarbaseToken is StandardToken {
      * @param fundraiserAddress The address in check
      */
     function addFundraiser(address fundraiserAddress) public onlyFundraiser {
+        require(fundraiserAddress != address(0));
         assert(!isFundraiser(fundraiserAddress));
 
         fundraisers[fundraiserAddress] = true;

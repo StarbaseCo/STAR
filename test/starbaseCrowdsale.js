@@ -60,6 +60,17 @@ contract('StarbaseCrowdsale', accounts => {
     await cs.setup(token.address, web3.eth.blockNumber)
   })
 
+  it('should NOT setup without a StarbaseToken contract address', async () => {
+      cs = await newCrowdsale()
+      try {
+          await cs.setup('0x0', web3.eth.blockNumber)
+          assert.fail()
+      } catch(e) {
+          utils.ensuresException(e)
+      }
+      assert.equal(await cs.starbaseToken.call(), '0x0000000000000000000000000000000000000000') // still not setup
+  })
+
   it('should be able to set an address of StarbaseToken contract', async () => {
     assert.equal(await cs.starbaseToken.call(), token.address)
   })
@@ -184,11 +195,26 @@ contract('StarbaseCrowdsale', accounts => {
     })
 
     describe('inability to purchase', () => {
+      it('does NOT record purchase if value send is zilch', async () => {
+        await cs.setQualifiedPartner(purchaser1, 2e+18, 0)
+        await cs.updateCnyEthRate(2000)
+
+        try {
+          await cs.purchaseAsQualifiedPartner({ from: purchaser1, value: 0 })
+          assert.fail()
+        } catch(error) {
+          utils.ensuresException(error)
+        }
+
+        assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 0)
+      })
+
       it('does NOT record purchase without a qualified partner set', async () => {
         await cs.updateCnyEthRate(2000)
 
         try {
           await cs.purchaseAsQualifiedPartner({ from: purchaser1, value: 1e+18 })
+          assert.fail()
         } catch(error) {
           utils.ensuresException(error)
         }
@@ -201,6 +227,7 @@ contract('StarbaseCrowdsale', accounts => {
 
         try {
           await cs.purchaseAsQualifiedPartner({ from: purchaser1, value: 1e+18 })
+          assert.fail()
         } catch(error) {
           utils.ensuresException(error)
         }
@@ -214,6 +241,7 @@ contract('StarbaseCrowdsale', accounts => {
 
         try {
           await cs.purchaseAsQualifiedPartner({ from: purchaser2, value: 1e+18 })
+          assert.fail()
         } catch(error) {
           utils.ensuresException(error)
         }
@@ -227,6 +255,7 @@ contract('StarbaseCrowdsale', accounts => {
 
         try {
           await cs.purchaseAsQualifiedPartner({ from: purchaser1, value: 3e+18 })
+          assert.fail()
         } catch(error) {
           utils.ensuresException(error)
         }
@@ -255,7 +284,8 @@ contract('StarbaseCrowdsale', accounts => {
         assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 78000000)
 
         try {
-          await cs.purchaseAsQualifiedPartner({ from: purchaser1, value: 1e+18 })
+          await cs.purchaseAsQualifiedPartner({ from: purchaser1, value: 3e+18 })
+          assert.fail()
         } catch(error) {
           utils.ensuresException(error)
         }

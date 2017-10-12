@@ -60,7 +60,9 @@ contract StarbaseMarketingCampaign is Ownable {
         onlyOwner
         returns (bool)
     {
-        assert(address(starbaseToken) == 0);
+        require(starbaseTokenAddress != address(0));
+        require(address(starbaseToken) == 0);
+
         starbaseToken = AbstractStarbaseToken(starbaseTokenAddress);
         return true;
     }

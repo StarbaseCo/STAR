@@ -88,6 +88,36 @@ contract('StarbaseToken', accounts => {
     assert.equal(balance.toNumber(), 62500000e+18)
   })
 
+  it('does NOT allocate to early contributor without a contributor address', async () => {
+    const token = await newToken()
+    try {
+      await token.allocateToEarlyContributor('0x0', 10000e+18)
+      assert.fail()
+    } catch(e) {
+      utils.ensuresException(e)
+    }
+  })
+
+  it('does NOT allocate to marketing supporter without a supporter address', async () => {
+    const token = await newToken()
+    try {
+      await token.allocateToMarketingSupporter('0x0', 10000e+18)
+      assert.fail()
+    } catch(e) {
+      utils.ensuresException(e)
+    }
+  })
+
+  it('does NOT allocate to crowdsale purchaser to an empty purchaser address', async () => {
+    const token = await newToken()
+    try {
+      await token.allocateToCrowdsalePurchaser('0x0', 10000e+18)
+      assert.fail()
+    } catch(e) {
+      utils.ensuresException(e)
+    }
+  })
+
   it('should be able to allocate tokens to an early contributor', async () => {
     const token = await newToken()
     await token.allocateToEarlyContributor(ec1, 10000e+18)
@@ -185,12 +215,20 @@ contract('StarbaseToken', accounts => {
     const num = await token.numOfInflatableTokens()
     assert.equal(num.toString(), '2.5e+25')  // 2.5%
 
+    try {
+      await token.issueTokens('0x0', 1)  // cannot issue tokens to an empty address
+      assert.fail()
+    } catch (err) {
+      utils.ensuresException(err)
+    }
+
     await token.issueTokens(founder1, web3.toBigNumber('1e+25'))
     await token.issueTokens(founder1, web3.toBigNumber('1.5e+25'))
     assert.equal((await token.balanceOf.call(founder1)).toString(), '2.5e+25')
 
     try {
       await token.issueTokens(founder1, 1)  // cannot issue tokens more than its limit
+      assert.fail()
     } catch (err) {
       utils.ensuresException(err)
     }
@@ -711,6 +749,19 @@ contract('StarbaseToken', accounts => {
       } catch (e) {
         utils.ensuresException(e)
       }
+    })
+
+    it('does NOT permit fundraiser to add fundraiser as an empty address', async () => {
+      assert.isFalse(await token.isFundraiser(company)) // address that is not a fundraiser
+
+      try {
+        await token.addFundraiser('0x0')
+        assert.fail()
+      } catch(e) {
+        utils.ensuresException(e)
+      }
+
+      assert.isFalse(await token.isFundraiser(company))
     })
 
     it('allows a fundraiser to add another fundraiser', async () => {

@@ -20,6 +20,17 @@ contract('StarbaseMarketingCampaign', accounts => {
         mkgCampaign = await StarbaseMarketingCampaign.new()
     })
 
+    it('does NOT setup without StarbaseToken contract address', async () => {
+        try {
+            await mkgCampaign.setup('0x0')
+            assert.fail()
+        } catch(e) {
+            ensuresException(e)
+        }
+
+        assert.equal(await mkgCampaign.starbaseToken.call(), '0x0000000000000000000000000000000000000000') // setup still not accomplished
+    })
+
     it('sets an address of StarbaseToken contract', async () => {
         token = await newToken()
         await mkgCampaign.setup(token.address)
