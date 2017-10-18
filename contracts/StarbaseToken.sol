@@ -81,6 +81,11 @@ contract StarbaseToken is StandardToken {
         _;
     }
 
+    modifier onlyPayloadSize(uint size) {
+        assert(msg.data.length == size + 4);
+        _;
+    }
+
     /*
      *  Contract functions
      */
@@ -294,7 +299,7 @@ contract StarbaseToken is StandardToken {
      * @param to Address of token receiver.
      * @param value Number of tokens to transfer.
      */
-    function transfer(address to, uint256 value) public returns (bool) {
+    function transfer(address to, uint256 value) public onlyPayloadSize(2*32) returns (bool) {
         assert(isTransferable(msg.sender, value));
         return super.transfer(to, value);
     }
@@ -305,7 +310,7 @@ contract StarbaseToken is StandardToken {
      * @param to Address to where tokens are sent.
      * @param value Number of tokens to transfer.
      */
-    function transferFrom(address from, address to, uint256 value) public returns (bool) {
+    function transferFrom(address from, address to, uint256 value) public onlyPayloadSize(3*32) returns (bool) {
         assert(isTransferable(from, value));
         return super.transferFrom(from, to, value);
     }

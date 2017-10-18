@@ -640,7 +640,55 @@ contract('StarbaseToken', accounts => {
     assert.equal(events.length, 1)
     assert.equal(events[0].args.launchedAt, now)
   })
+  describe('short address attack prevetion', () => {
+      it('prevents tranfers when function input is short', async () => {
+        const now = utils.getBlockNow()
+        const ep = await StarbaseEarlyPurchase.new()
+        await ep.appendEarlyPurchase(ep1, 100, now)
+        await ep.closeEarlyPurchase()
+        const epa = await StarbaseEarlyPurchaseAmendment.new()
+        await epa.loadStarbaseEarlyPurchases(ep.address)
 
+        const cs = await newCrowdsale()
+        const token = await newToken(cs)
+        await cs.setup(token.address, web3.eth.blockNumber)
+        await cs.loadEarlyPurchases()
+        await timer(2) // wait a couple of secs
+        await cs.updateCnyEthRate(2000)
+        await cs.setQualifiedPartner(ep1, 2000000e+18, 0)
+        await cs.setQualifiedPartner(cs1, 2000000e+18, 0)
+        await cs.purchaseWithEth({ from: ep1, value: 1e+18 })
+        await cs.purchaseWithEth({ from: cs1, value: 1e+18 })
+        await cs.endCrowdsale(utils.getBlockNow() - (86400 * 14) + 10)  // less than 14 days ago
+
+        await cs.withdrawPurchasedTokens({ from: cs1 })
+        await cs.withdrawPurchasedTokens({ from: ep1 })
+        assert.equal((await token.balanceOf(ep1)).toNumber(), 6.25e+25)
+        assert.equal((await token.balanceOf(cs1)).toNumber(), 6.25e+25)
+
+        const funcSig = "0xa9059cbb"
+        const addressAs32Bytes = `000000000000000000000000${cs1.split("0x")[1]}`
+        const oneEthInHex = "0000000000000000000000000000000000000000000000000de0b6b3a7640000"
+        const dataInput = funcSig + addressAs32Bytes + oneEthInHex
+
+        const shortAddress = `0000000000000000000000${cs1.split("0x")[1]}`
+        const badDataInput = funcSig + shortAddress + oneEthInHex
+
+        // accurately input data is allowed
+        await token.sendTransaction({ from: ep1, data: dataInput })
+        assert.equal((await token.balanceOf(ep1)).toNumber(),  6.2499999e+25) // - 1 from transfer
+        assert.equal((await token.balanceOf(cs1)).toNumber(),  6.2500001e+25)
+
+        // should not allow to transfer tokens with short address attacks
+        try {
+          await token.sendTransaction({ from: ep1, data: badDataInput })
+          assert.fail()
+        } catch (e) {
+          utils.ensuresException(e)
+        }
+        assert.equal((await token.balanceOf(ep1)).toNumber(),  6.2499999e+25) // remains the same
+      })
+  })
   describe('for early contributors', () => {
     it('should not allow early contributors to transfer their tokens initially', async () => {
       const cs = await newCrowdsale()
