@@ -137,6 +137,16 @@ contract StarbaseCrowdsale is Ownable {
         _;
     }
 
+    modifier onlyQualifiedPartner() {
+        assert(qualifiedPartners[msg.sender].bonaFide);
+        _;
+    }
+
+    modifier onlyQualifiedPartnerORPicopsCertified() {
+        assert(qualifiedPartners[msg.sender].bonaFide || picopsCertifier.certified(msg.sender));
+        _;
+    }
+
     /**
      * Contract functions
      */
@@ -514,6 +524,7 @@ contract StarbaseCrowdsale is Ownable {
         minInvestment
         whenNotEnded
         rateIsSet(cnyEthRate)
+        onlyQualifiedPartnerORPicopsCertified
         returns (bool)
     {
         require(purchaseStartBlock > 0 && block.number >= purchaseStartBlock);
