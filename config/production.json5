@@ -2,6 +2,7 @@
   Ethereum: {
     address: {
       starbaseEarlyPurchaseAmendment: '0x859e7E76cAeDe3b642FC84862809f60c055cb731',
+      picopsCertifier: '0x1e2F058C43ac8965938F6e9CA286685A3E63F24E',
       company: '0x6C9e70d6682eA36fF340153D574b2C523671B107',
     },
     presale: {

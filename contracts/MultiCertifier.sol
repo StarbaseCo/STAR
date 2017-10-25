@@ -4,7 +4,6 @@
 
 pragma solidity ^0.4.15;
 
-// From Owned.sol
 contract Owned {
 	modifier only_owner { if (msg.sender != owner) return; _; }
 
@@ -15,15 +14,7 @@ contract Owned {
 	address public owner = msg.sender;
 }
 
-// From Certifier.sol
-contract Certifier {
-	event Confirmed(address indexed who);
-	event Revoked(address indexed who);
-	function certified(address) public constant returns (bool);
-	function get(address, string) public constant returns (bytes32);
-	function getAddress(address, string) public constant returns (address);
-	function getUint(address, string) public constant returns (uint);
-}
+import './Certifier.sol';
 
 /**
  * Contract to allow multiple parties to collaborate over a certification contract.

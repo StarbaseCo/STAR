@@ -6,6 +6,7 @@ const StarbaseCrowdsale = artifacts.require("./StarbaseCrowdsale.sol")
 const StarbaseMarketingCampaign = artifacts.require("./StarbaseMarketingCampaign.sol")
 const StarbaseEarlyPurchase = artifacts.require("./StarbaseEarlyPurchase.sol")
 const StarbaseEarlyPurchaseAmendment = artifacts.require("./StarbaseEarlyPurchaseAmendment.sol")
+const MultiCertifier = artifacts.require('./MultiCertifier.sol')
 
 const secsInMonths = (m) => m * 30 * 86400
 
@@ -33,7 +34,7 @@ contract('StarbaseToken', accounts => {
 
   const newCrowdsale = (customEpa) => {
     if (customEpa) {
-      return StarbaseCrowdsale.new(customEpa.address)
+      return StarbaseCrowdsale.new(customEpa.address, MultiCertifier.address)
     } else {
       let ep, epa
       return StarbaseEarlyPurchase.new().then(x => {
@@ -45,7 +46,7 @@ contract('StarbaseToken', accounts => {
         epa = x
         epa.loadStarbaseEarlyPurchases(ep.address)
       }).then(() => {
-        return StarbaseCrowdsale.new(epa.address)
+        return StarbaseCrowdsale.new(epa.address, MultiCertifier.address)
       })
     }
   }

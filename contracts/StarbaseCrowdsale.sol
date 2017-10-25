@@ -5,6 +5,7 @@ import 'zeppelin-solidity/contracts/ownership/Ownable.sol';
 
 import './AbstractStarbaseToken.sol';
 import './StarbaseEarlyPurchaseAmendment.sol';
+import './Certifier.sol';
 
 /**
  * @title Crowdsale contract - Starbase crowdsale to create STAR.
@@ -26,6 +27,7 @@ contract StarbaseCrowdsale is Ownable {
      */
     AbstractStarbaseToken public starbaseToken;
     StarbaseEarlyPurchaseAmendment public starbaseEpAmendment;
+    Certifier public picopsCertifier;
 
     /**
      *  Constants
@@ -154,11 +156,14 @@ contract StarbaseCrowdsale is Ownable {
      * @dev Contract constructor function sets owner address and
      *      address of StarbaseEarlyPurchaseAmendment contract.
      * @param starbaseEpAddr The address that holds the early purchasers Star tokens
+     * @param picopsCertifierAddr The address of the PICOPS certifier.
+     *                            See also https://picops.parity.io/#/details
      */
-    function StarbaseCrowdsale(address starbaseEpAddr) {
-        require(starbaseEpAddr != 0);
+    function StarbaseCrowdsale(address starbaseEpAddr, address picopsCertifierAddr) {
+        require(starbaseEpAddr != 0 && picopsCertifierAddr != 0);
         owner = msg.sender;
         starbaseEpAmendment = StarbaseEarlyPurchaseAmendment(starbaseEpAddr);
+        picopsCertifier = Certifier(picopsCertifierAddr);
     }
 
     /**

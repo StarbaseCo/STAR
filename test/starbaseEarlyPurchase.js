@@ -4,6 +4,7 @@ const StarbaseToken = artifacts.require('./StarbaseToken.sol')
 const StarbaseCrowdsale = artifacts.require('./StarbaseCrowdsale.sol')
 const StarbaseMarketingCampaign = artifacts.require('./StarbaseMarketingCampaign.sol')
 const StarbaseEarlyPurchase = artifacts.require('./StarbaseEarlyPurchase.sol')
+const MultiCertifier = artifacts.require('./MultiCertifier.sol')
 
 contract('StarbaseEarlyPurchase', accounts => {
   const eth = web3.eth
@@ -94,7 +95,7 @@ contract('StarbaseEarlyPurchase', accounts => {
 
   it('should not allow to append early purchases after Crowdsale started', async () => {
     const ep = await newEP()
-    const cs = await StarbaseCrowdsale.new(ep.address)
+    const cs = await StarbaseCrowdsale.new(ep.address, MultiCertifier.address)
     await ep.setup(cs.address)
     await ep.appendEarlyPurchase(account1, 10000, currentTimestamp())
     assert.equal((await ep.numberOfEarlyPurchases.call()).toNumber(), 1)

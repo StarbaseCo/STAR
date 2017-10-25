@@ -3,6 +3,7 @@
     // these addresses and private keys are just for debug
     address: {
       starbaseEarlyPurchaseAmendment: null,
+      picopsCertifier: null,
       company: '0xf36fde0a26401256f5857b718671343dbb81886c',                    // privKey: b0263eaff27ef2a58688429b1d973f6c1c1ea905779ec5e92bccea8c313db510
     },
     presale: {
