@@ -2,7 +2,7 @@
 //! By Parity Technologies, 2017.
 //! Released under the Apache Licence 2.
 
-pragma solidity ^0.4.16;
+pragma solidity ^0.4.15;
 
 // From Owned.sol
 contract Owned {
