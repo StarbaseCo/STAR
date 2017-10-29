@@ -27,6 +27,10 @@ contract('StarbaseCrowdsale', accounts => {
   let startDate
   let purchaseAt
   const secondsInADay = 86400
+  const firstBonusEnds =  360000
+  const secondBonusEnds = 720000
+  const thirdBonusEnds =  980000
+  const fourthBonusEnds = 1340000
 
   const newCrowdsale = (customEpa) => {
     if (customEpa) {
@@ -93,18 +97,15 @@ contract('StarbaseCrowdsale', accounts => {
 
   it("logs StarbasePurchasedWithEth event", async () => {
     await cs.updateCnyEthRate(2000)
+    await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
     await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
-    const fortyfourDaysAsSeconds = secondsInADay * 44
-    await timer(fortyfourDaysAsSeconds)
     const { logs } = await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
 
     assert.strictEqual(logs.length, 1, 'should have received 1 event')
 
     assert.strictEqual(logs[0].args.purchaser, purchaser1, "should be accounts[4] address")
-    assert.strictEqual(logs[0].args.amount.toNumber(), 2000, "should be 200")
-    assert.strictEqual(logs[0].args.rawAmount.toNumber(), 2000, "should be 200")
-    assert.strictEqual(logs[0].args.cnyEthRate.toNumber(), 2000, "should be 200")
-    assert.strictEqual(logs[0].args.bonusTokensPercentage.toNumber(), 0, "should be 0")
+    assert.strictEqual(logs[0].args.amount.toNumber(), 2400, "amount should be 2400") // with 20% bonus
+    assert.strictEqual(logs[0].args.rawAmount.toNumber(), 2000, " rawAmount should be 2000")
   })
 
   it('should NOT permit other addresses to set cny eth rate', async () => {
@@ -128,7 +129,6 @@ contract('StarbaseCrowdsale', accounts => {
 
     assert.strictEqual(logs.length, 1, 'should have received 1 event')
 
-    assert.strictEqual(logs[0].args.cnyEthRate.toNumber(), 123, "should be 123")
   })
 
   it('should NOT permit other addresses to set cny btc rate', async () => {
@@ -157,7 +157,10 @@ contract('StarbaseCrowdsale', accounts => {
 
   describe('qualified Partner', () => {
     beforeEach(async () => {
-      await cs.setQualifiedPartner(addressA, 2e+18, 0)
+        cs = await newCrowdsale()
+        token = await newToken(cs.address)
+        await cs.setup(token.address, web3.eth.blockNumber + 20) // future block
+        await cs.setQualifiedPartner(addressA, 2e+18, 0)
     })
 
     it('adds a qualified address to the list with a cap amount', async () => {
@@ -282,7 +285,7 @@ contract('StarbaseCrowdsale', accounts => {
 
         assert.equal((await cs.numOfPurchases.call()).toNumber(), 1)
         assert.equal((await cs.totalAmountOfCrowdsalePurchasesWithoutBonus.call()).toNumber(), 60000000)
-        assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 78000000)
+        assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 60000000)
 
         try {
           await cs.purchaseAsQualifiedPartner({ from: purchaser1, value: 3e+18 })
@@ -292,7 +295,7 @@ contract('StarbaseCrowdsale', accounts => {
         }
 
         assert.equal((await cs.totalAmountOfCrowdsalePurchasesWithoutBonus.call()).toNumber(), 60000000)
-        assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 78000000)
+        assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 60000000)
       })
     })
 
@@ -311,8 +314,6 @@ contract('StarbaseCrowdsale', accounts => {
         assert.equal(purchase[1].toNumber(), 2600)
         assert.equal(purchase[1].toNumber(), 2600)
 
-        assert.equal(purchase[4].toString(), '')
-        assert.equal(purchase[5].toNumber(), 30)
       })
 
       it('allows for more than one qualified partners to purchase with 30 percentage bonus', async () => {
@@ -330,9 +331,6 @@ contract('StarbaseCrowdsale', accounts => {
         assert.equal(purchase[0].toString(), purchaser2)
         assert.equal(purchase[1].toNumber(), 2600)
         assert.equal(purchase[2].toNumber(), 2000)
-
-        assert.equal(purchase[4].toString(), '')
-        assert.equal(purchase[5].toNumber(), 30)
       })
 
       it('lets presale purchases ignore the crowdsale cap', async () => {
@@ -354,9 +352,6 @@ contract('StarbaseCrowdsale', accounts => {
         assert.equal(purchase[0].toString(), purchaser2)
         assert.equal(purchase[1].toNumber(), 78000000)
         assert.equal(purchase[2].toNumber(), 60000000)
-
-        assert.equal(purchase[4].toString(), '')
-        assert.equal(purchase[5].toNumber(), 30)
       })
 
       it('automatically pays qualified partners commission fee', async () => {
@@ -386,6 +381,7 @@ contract('StarbaseCrowdsale', accounts => {
   describe('starting crowdsale', () => {
     it('should not allow to start the crowdsale before the specified block number', async () => {
       const cs = await newCrowdsale()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
 
       // when the block number has not been set yet
       try {
@@ -411,19 +407,11 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('should start the crowdsale automatically by the first purchase with Ether', async () => {
       const cs = await newCrowdsale()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       const startsAt = web3.eth.blockNumber + 2
       await cs.setup(token.address, startsAt)
       await cs.updateCnyEthRate(1000)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
-      assert.isBelow(utils.getBlockNow() - (await cs.startDate()).toNumber(), 5) // started just now
-    })
-
-    it('should start the crowdsale automatically by the first purchase with Bitcoin', async () => {
-      const cs = await newCrowdsale()
-      const startsAt = web3.eth.blockNumber + 2
-      await cs.setup(token.address, startsAt)
-      await cs.updateCnyBtcRate(10000)
-      await cs.recordOffchainPurchase(purchaser1, 1, Math.floor(Date.now() / 1000), 'btc:xxx')
       assert.isBelow(utils.getBlockNow() - (await cs.startDate()).toNumber(), 5) // started just now
     })
 
@@ -443,6 +431,7 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('does NOT allow owner to overrride start date of crowdsale', async () => {
       const cs = await newCrowdsale()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       const startsAt = web3.eth.blockNumber
       await cs.setup(token.address, startsAt)
       await cs.updateCnyEthRate(1000)
@@ -467,114 +456,28 @@ contract('StarbaseCrowdsale', accounts => {
       await cs.ownerStartsCrowdsale(startDate)
       assert.equal((await cs.startDate()).toNumber(), startDate)
     })
-  })
 
-  describe('unable to record offline purchases', () => {
-    it('does NOT record off-chain if not sent by owner', async () => {
-      startDate = await cs.startDate()
-      purchaseAt = startDate.toNumber() + 2
-      await timer(2)
-      await cs.updateCnyBtcRate(2000)
-
-      try {
-        await cs.recordOffchainPurchase(
-          purchaser1,
-          2,
-          1497532648,
-          'btc:1732c342c93f69bb63b62960c422564d9b6e6f47f077d5498f0087e2bb2c256d',
-          { from: purchaser1 }
-        )
-      } catch(error) {
-        utils.ensuresException(error)
-      }
-
-      assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 0)
-    })
-
-    it('does NOT record off-chain purchases before crowdsale start date', async () => {
+    it('is able to start crowdsale even if no allocation is left the main sale', async () => {
       const cs = await newCrowdsale()
-      const token = await newToken(cs.address)
-      await cs.setup(token.address, web3.eth.blockNumber + 30)
-      await cs.updateCnyBtcRate(2000)
-
-      try {
-        await cs.recordOffchainPurchase(
-          purchaser1,
-          2,
-          1497532648,
-          'btc:1732c342c93f69bb63b62960c422564d9b6e6f47f077d5498f0087e2bb2c256d'
-        )
-      } catch(error) {
-        utils.ensuresException(error)
-      }
-
-      assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 0)
-    })
-
-    it('does NOT record off-chain purchases if cny BTC rate is not set', async () => {
-      startDate = await cs.startDate()
-      purchaseAt = startDate.toNumber() + 2
-      await timer(2)
-
-      try {
-        await cs.recordOffchainPurchase(
-          purchaser1,
-          2,
-          purchaseAt,
-          'btc:1732c342c93f69bb63b62960c422564d9b6e6f47f077d5498f0087e2bb2c256d'
-        )
-      } catch(error) {
-        utils.ensuresException(error)
-      }
-
-      assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 0)
-    })
-  })
-
-  describe('recording off chain purchases', () => {
-    beforeEach(async () => {
-      startDate = await cs.startDate()
-      purchaseAt = startDate.toNumber() + 2
-      await timer(2)
-
-      await cs.updateCnyBtcRate(2000)
-    })
-
-    it('should be able to record off-chain purchases', async () => {
-      await cs.recordOffchainPurchase(
-        purchaser1,
-        2,
-        purchaseAt,
-        'btc:1732c342c93f69bb63b62960c422564d9b6e6f47f077d5498f0087e2bb2c256d'
-      )
-      assert.equal((await cs.numOfPurchases.call()).toNumber(), 1)
-      assert.equal((await cs.totalAmountOfCrowdsalePurchases.call()).toNumber(), 2)
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
+      const startsAt = web3.eth.blockNumber + 4  // a little future
+      await cs.setup(token.address, startsAt)
+      await cs.updateCnyEthRate(70000000)
+      await cs.sendTransaction({ from: purchaser1, value: 1e+18 })  // pre sale
 
       const purchase = await cs.crowdsalePurchases(0)
       assert.equal(purchase[0].toString(), purchaser1)
-      assert.equal(purchase[1].toNumber(), 2)
-      assert(purchase[3].toNumber(), purchaseAt)
-      assert.equal(
-        purchase[4].toString(),
-        'btc:1732c342c93f69bb63b62960c422564d9b6e6f47f077d5498f0087e2bb2c256d')
-    })
+      assert.equal(purchase[1].toNumber(), 91000000)
+      assert.equal(purchase[2].toNumber(), 70000000)
 
-    it("logs StarbasePurchasedOffChain event", async () => {
-      const { logs } = await cs.recordOffchainPurchase(
-        purchaser1,
-        2,
-        purchaseAt,
-        'btc:1732c342c93f69bb63b62960c422564d9b6e6f47f077d5498f0087e2bb2c256d'
-      )
+      const startDate = utils.getBlockNow()
+      await cs.ownerStartsCrowdsale(utils.getBlockNow())
+      assert.equal((await cs.startDate()).toNumber(), startDate)
 
-      assert.strictEqual(logs.length, 1, 'should have received 1 event')
-
-      assert.strictEqual(logs[0].args.purchaser, purchaser1, "should be accounts[4] address")
-      assert.strictEqual(logs[0].args.amount.toNumber(), 2, "should be 2")
-      assert.strictEqual(logs[0].args.rawAmount.toNumber(), 2, "should be 2")
-      assert.strictEqual(logs[0].args.cnyBtcRate.toNumber(), 2000, "should be 2000")
-      assert.strictEqual(logs[0].args.bonusTokensPercentage.toNumber(), 20, "should be 20")
-      assert.strictEqual(logs[0].args.data, 'btc:1732c342c93f69bb63b62960c422564d9b6e6f47f077d5498f0087e2bb2c256d')
+      assert.equal((await cs.firstBonusEnds()).toNumber(), 0)
+      assert.equal((await cs.secondBonusEnds()).toNumber(), 0)
+      assert.equal((await cs.thirdBonusEnds()).toNumber(), 0)
+      assert.equal((await cs.fourthBonusEnds()).toNumber(), 0)
     })
   })
 
@@ -610,7 +513,7 @@ contract('StarbaseCrowdsale', accounts => {
       const now = utils.getBlockNow() // base timestamp off the blockchain
 
       try {
-        await cs.endCrowdsale(now + 2)
+        await cs.endCrowdsale(now + 20)
         assert.fail()
       } catch(error) {
         utils.ensuresException(error)
@@ -628,10 +531,11 @@ contract('StarbaseCrowdsale', accounts => {
       assert.equal(events[0].args.endedAt, now)
     })
   })
-
+  //
   describe('delivery of tokens', () => {
     it('returns the number of purchased tokens by a purchaser upon delivery', async () => {
       const cs = await newCrowdsale()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.loadEarlyPurchases()
       const token = await newToken(cs.address)
       await cs.setup(token.address, web3.eth.blockNumber)
@@ -648,6 +552,7 @@ contract('StarbaseCrowdsale', accounts => {
     it('updates the cny purchase value of the pucharses and zeroes it once tokens are delivered', async () => {
       const cs = await newCrowdsale()
       await cs.loadEarlyPurchases()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       const token = await newToken(cs.address)
       await cs.setup(token.address, web3.eth.blockNumber)
       await cs.updateCnyEthRate(2000)
@@ -661,6 +566,8 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('calculates the number of purchases from the same investor even if investor purchases multiple times', async () => {
       const cs = await newCrowdsale()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
+      await cs.setQualifiedPartner(purchaser2, 2000000e+18, 0)
       await cs.loadEarlyPurchases()
       const token = await newToken(cs.address)
       await cs.setup(token.address, web3.eth.blockNumber)
@@ -681,6 +588,7 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('makes the the token figure remain the same even if user calls the withdrawPurchasedTokens multiple times', async () => {
       const cs = await newCrowdsale()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.loadEarlyPurchases()
       const token = await newToken(cs.address)
       await cs.setup(token.address, web3.eth.blockNumber)
@@ -700,6 +608,9 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('keeps track of the number of delivered crowdsale purchase', async () => {
       const cs = await newCrowdsale()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
+      await cs.setQualifiedPartner(purchaser2, 2000000e+18, 0)
+      await cs.setQualifiedPartner(addressA, 2000000e+18, 0)
       const token = await newToken(cs.address)
       await cs.setup(token.address, web3.eth.blockNumber)
       await cs.loadEarlyPurchases()
@@ -753,6 +664,7 @@ contract('StarbaseCrowdsale', accounts => {
       await epa.loadStarbaseEarlyPurchases(ep.address)
 
       const cs = await newCrowdsale(epa)
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.loadEarlyPurchases()
       const token = await newToken(cs.address)
       await cs.setup(token.address, web3.eth.blockNumber)
@@ -944,6 +856,7 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('fails if company adress is not set', async () => {
       await cs.updateCnyEthRate(2000)
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
 
       try {
@@ -955,6 +868,7 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('transfers contract balance', async () => {
       await cs.updateCnyEthRate(2000)
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
 
       const balanceBefore = web3.eth.getBalance(cs.address)
@@ -970,6 +884,7 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('tranfers contract funds to company', async () => {
       await cs.updateCnyEthRate(2000)
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
 
       const companyBalanceBefore = web3.eth.getBalance(company)
@@ -1002,8 +917,6 @@ contract('StarbaseCrowdsale', accounts => {
         assert.equal(purchase[1].toNumber(), 2600)
         assert.equal(purchase[1].toNumber(), 2600)
 
-        assert.equal(purchase[4].toString(), '')
-        assert.equal(purchase[5].toNumber(), 30)
     })
 
     it('does NOT allow unqualified partner to send money to the contract before the crowdsale starts', async () => {
@@ -1029,6 +942,7 @@ contract('StarbaseCrowdsale', accounts => {
 
     it('allows purchases to acquire Star tokens once the crowdsale starts', async () => {
       const startDate = await cs.startDate()
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await timer(2) // wait a couple of secs
       await cs.updateCnyEthRate(1000)
       await cs.sendTransaction({ from: purchaser1, value: 1e+18 })
@@ -1047,8 +961,6 @@ contract('StarbaseCrowdsale', accounts => {
 
       assert.isAtLeast(purchase[3].toNumber(), startDate)
 
-      assert.equal(purchase[4].toString(), '')
-      assert.equal(purchase[5].toNumber(), 20) // 20 percent bonus
     })
   })
 
@@ -1067,6 +979,7 @@ contract('StarbaseCrowdsale', accounts => {
     })
 
     it('halts crowdsale purchases when the cap reaches over 66M CNY', async () => {
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
 
       try {
@@ -1077,19 +990,20 @@ contract('StarbaseCrowdsale', accounts => {
     })
 
     it('returns the difference in purchase when a purchaser goes over the max cap', async () => {
-      const purchase1Balance = await web3.eth.getBalance(purchaser1)
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
 
       assert.equal((await cs.totalAmountOfCrowdsalePurchasesWithoutBonus.call()).toNumber(), 60000000)
 
       const purchase = await cs.crowdsalePurchases(0)
       assert.equal(purchase[0].toString(), purchaser1)
-      assert.equal(purchase[1].toNumber(), 72000000) // purchase with bonus was recorded as the purchase was done within the max cap of 6000000
+      assert.equal(purchase[1].toNumber(), 66000000) // purchase with bonus was recorded as the purchase was done within the max cap of 6000000
       assert.equal(purchase[2].toNumber(), 60000000) // purchase with bonus was recorded as the purchase was done within the max cap of 6000000
     })
 
     it('returns the difference in purchase to purchaser not counting bonus when purchaser goes over max cap - edge case', async () => {
       await cs.updateCnyEthRate(59000000)
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
       await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
 
       assert.equal((await cs.totalAmountOfCrowdsalePurchasesWithoutBonus.call()).toNumber(), 59000000)
@@ -1099,7 +1013,7 @@ contract('StarbaseCrowdsale', accounts => {
 
       const purchase = await cs.crowdsalePurchases(1) // second purchase
       assert.equal(purchase[0].toString(), purchaser1)
-      assert.equal(purchase[1].toNumber(), 1200000) // only the bonus on 1M CNY is recorded not on 5M
+      assert.equal(purchase[1].toNumber(), 1000000) // only the bonus on 1M CNY is recorded not on 5M
       assert.equal(purchase[2].toNumber(), 1000000) // only the bonus on 1M CNY is recorded not on 5M
 
       const purchase1CurrentBalance = await web3.eth.getBalance(purchaser1)
@@ -1107,6 +1021,22 @@ contract('StarbaseCrowdsale', accounts => {
       // Should have the difference back. About 4M CNY is return back as in ETH
       const cnyReturnValueToEther = (purchase1Balance.toNumber() * 1e+18) / 4000000
       assert.approximately(purchase1CurrentBalance.toNumber(), purchase1Balance.toNumber(), cnyReturnValueToEther)
+    })
+
+    it('rejects further purchase transactions once it has reached the crowdsale max cap', async () => {
+      await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
+      await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
+
+      assert.equal((await cs.totalAmountOfCrowdsalePurchasesWithoutBonus.call()).toNumber(), 60000000)
+      assert.equal((await cs.numOfPurchases()).toNumber(), 1)
+
+      try {
+        await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
+        assert.fail()
+      } catch (error) {
+        utils.ensuresException(error)
+      }
+      assert.equal((await cs.numOfPurchases()).toNumber(), 1)
     })
   })
 })

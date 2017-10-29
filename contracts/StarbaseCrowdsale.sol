@@ -12,12 +12,12 @@ import './Certifier.sol';
  * @author Starbase PTE. LTD. - <info@starbase.co>
  */
 contract StarbaseCrowdsale is Ownable {
+    using SafeMath for uint256;
     /*
      *  Events
      */
     event CrowdsaleEnded(uint256 endedAt);
-    event StarbasePurchasedWithEth(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyEthRate, uint256 bonusTokensPercentage);
-    event StarbasePurchasedOffChain(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyBtcRate, uint256 bonusTokensPercentage, string data);
+    event StarbasePurchasedWithEth(address purchaser, uint256 amount, uint256 rawAmount, uint256 cnyEthRate);
     event CnyEthRateUpdated(uint256 cnyEthRate);
     event CnyBtcRateUpdated(uint256 cnyBtcRate);
     event QualifiedPartnerAddress(address qualifiedPartner);
@@ -46,8 +46,6 @@ contract StarbaseCrowdsale is Ownable {
         uint256 amount;        // CNY based amount with bonus
         uint256 rawAmount;     // CNY based amount no bonus
         uint256 purchasedAt;   // timestamp
-        string data;           // additional data (e.g. Tx ID of Bitcoin)
-        uint256 bonus;
     }
 
     struct QualifiedPartners {
@@ -56,6 +54,20 @@ contract StarbaseCrowdsale is Ownable {
         bool    bonaFide;
         uint256 commissionFeePercentage; // example 5 will calculate the percentage as 5%
     }
+
+    /*
+     *  Enums
+     */
+    enum BonusMilestones {
+        First,
+        Second,
+        Third,
+        Fourth,
+        Fifth
+    }
+
+    // Initialize bonusMilestones
+    BonusMilestones public bonusMilestones = BonusMilestones.First;
 
     /**
      *  Storage
@@ -83,17 +95,10 @@ contract StarbaseCrowdsale is Ownable {
     uint256 public cnyEthRate;
 
     // bonus milestones
-    uint256 public firstBonusSalesEnds;
-    uint256 public secondBonusSalesEnds;
-    uint256 public thirdBonusSalesEnds;
-    uint256 public fourthBonusSalesEnds;
-    uint256 public fifthBonusSalesEnds;
-    uint256 public firstExtendedBonusSalesEnds;
-    uint256 public secondExtendedBonusSalesEnds;
-    uint256 public thirdExtendedBonusSalesEnds;
-    uint256 public fourthExtendedBonusSalesEnds;
-    uint256 public fifthExtendedBonusSalesEnds;
-    uint256 public sixthExtendedBonusSalesEnds;
+    uint256 public firstBonusEnds;
+    uint256 public secondBonusEnds;
+    uint256 public thirdBonusEnds;
+    uint256 public fourthBonusEnds;
 
     // after the crowdsale
     mapping (address => uint256) public numOfPurchasedTokensOnCsBy;    // the number of tokens purchased on the crowdsale by a purchaser
@@ -193,41 +198,12 @@ contract StarbaseCrowdsale is Ownable {
         purchaseStartBlock = _purchaseStartBlock;
 
         totalAmountOfEarlyPurchasesInCny = totalAmountOfEarlyPurchases();
+
         // set the max cap of this crowdsale
-        maxCrowdsaleCap = SafeMath.sub(MAX_CAP, totalAmountOfEarlyPurchasesInCny);
+        maxCrowdsaleCap = MAX_CAP.sub(totalAmountOfEarlyPurchasesInCny);
+
         assert(maxCrowdsaleCap > 0);
 
-        return true;
-    }
-
-    /**
-     * @dev Allows owner to record a purchase made outside of Ethereum blockchain
-     * @param purchaser Address of a purchaser
-     * @param rawAmount Purchased amount in CNY
-     * @param purchasedAt Timestamp at the purchase made
-     * @param data Identifier as an evidence of the purchase (e.g. btc:1xyzxyz)
-     */
-    function recordOffchainPurchase(
-        address purchaser,
-        uint256 rawAmount,
-        uint256 purchasedAt,
-        string data
-    )
-        external
-        onlyFundraiser
-        whenNotEnded
-        rateIsSet(cnyBtcRate)
-        returns (bool)
-    {
-        require(purchaseStartBlock > 0 && block.number >= purchaseStartBlock);
-        if (startDate == 0) {
-            startCrowdsale(block.timestamp);
-        }
-
-        uint256 bonusTier = getBonusTier();
-        uint amount = recordPurchase(purchaser, rawAmount, purchasedAt, data, bonusTier);
-
-        StarbasePurchasedOffChain(purchaser, amount, rawAmount, cnyBtcRate, bonusTier, data);
         return true;
     }
 
@@ -279,7 +255,6 @@ contract StarbaseCrowdsale is Ownable {
     {
         assert(startDate == 0 && block.number >= purchaseStartBlock);   // overwriting startDate is not permitted and it should be after the crowdsale start block
         startCrowdsale(timestamp);
-
     }
 
     /**
@@ -500,23 +475,21 @@ contract StarbaseCrowdsale is Ownable {
         payable
         public
         rateIsSet(cnyEthRate)
+        onlyQualifiedPartner
         returns (bool)
     {
-        require(qualifiedPartners[msg.sender].bonaFide);
         require(msg.value > 0);
         qualifiedPartners[msg.sender].amountRaised = SafeMath.add(msg.value, qualifiedPartners[msg.sender].amountRaised);
 
         assert(qualifiedPartners[msg.sender].amountRaised <= qualifiedPartners[msg.sender].amountCap);
 
-        uint256 bonusTier = 30; // Pre sale purchasers get 30 percent bonus
         uint256 rawAmount = SafeMath.mul(msg.value, cnyEthRate) / 1e18;
-        uint amount = recordPurchase(msg.sender, rawAmount, now, '', bonusTier);
+        recordPurchase(msg.sender, rawAmount, now);
 
         if (qualifiedPartners[msg.sender].commissionFeePercentage > 0) {
             sendQualifiedPartnerCommissionFee(msg.sender, msg.value);
         }
 
-        StarbasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate, bonusTier);
         return true;
     }
 
@@ -533,16 +506,14 @@ contract StarbaseCrowdsale is Ownable {
         returns (bool)
     {
         require(purchaseStartBlock > 0 && block.number >= purchaseStartBlock);
+
         if (startDate == 0) {
             startCrowdsale(block.timestamp);
         }
 
-        uint256 bonusTier = getBonusTier();
-
         uint256 rawAmount = SafeMath.mul(msg.value, cnyEthRate) / 1e18;
-        uint amount = recordPurchase(msg.sender, rawAmount, now, '', bonusTier);
+        recordPurchase(msg.sender, rawAmount, now);
 
-        StarbasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate, bonusTier);
         return true;
     }
 
@@ -555,21 +526,17 @@ contract StarbaseCrowdsale is Ownable {
      */
     function startCrowdsale(uint256 timestamp) internal {
         startDate = timestamp;
+        uint256 presaleAmount = totalAmountOfCrowdsalePurchasesWithoutBonus();
+        if (maxCrowdsaleCap > presaleAmount) {
+            uint256 mainSaleCap = maxCrowdsaleCap.sub(presaleAmount);
+            uint256 twentyPercentOfCrowdsalePurchase = mainSaleCap.mul(20).div(100);
 
-        // set token bonus milestones
-        firstBonusSalesEnds = startDate + 7 days;             // 1. 1st ~ 7th day
-        secondBonusSalesEnds = firstBonusSalesEnds + 14 days; // 2. 8th ~ 21st day
-        thirdBonusSalesEnds = secondBonusSalesEnds + 14 days; // 3. 22nd ~ 35th day
-        fourthBonusSalesEnds = thirdBonusSalesEnds + 7 days;  // 4. 36th ~ 42nd day
-        fifthBonusSalesEnds = fourthBonusSalesEnds + 3 days;  // 5. 43rd ~ 45th day
-
-        // extended sales bonus milestones
-        firstExtendedBonusSalesEnds = fifthBonusSalesEnds + 3 days;         // 1. 46th ~ 48th day
-        secondExtendedBonusSalesEnds = firstExtendedBonusSalesEnds + 3 days; // 2. 49th ~ 51st day
-        thirdExtendedBonusSalesEnds = secondExtendedBonusSalesEnds + 3 days; // 3. 52nd ~ 54th day
-        fourthExtendedBonusSalesEnds = thirdExtendedBonusSalesEnds + 3 days; // 4. 55th ~ 57th day
-        fifthExtendedBonusSalesEnds = fourthExtendedBonusSalesEnds + 3 days;  // 5. 58th ~ 60th day
-        sixthExtendedBonusSalesEnds = fifthExtendedBonusSalesEnds + 60 days; // 6. 61st ~ 120th day
+            // set token bonus milestones in cny total crowdsale purchase
+            firstBonusEnds =  twentyPercentOfCrowdsalePurchase;
+            secondBonusEnds = firstBonusEnds.add(twentyPercentOfCrowdsalePurchase);
+            thirdBonusEnds =  secondBonusEnds.add(twentyPercentOfCrowdsalePurchase);
+            fourthBonusEnds = thirdBonusEnds.add(twentyPercentOfCrowdsalePurchase);
+        }
     }
 
     /**
@@ -577,15 +544,11 @@ contract StarbaseCrowdsale is Ownable {
      * @param purchaser Address of the buyer
      * @param rawAmount Amount in CNY as per the CNY/ETH rate used
      * @param timestamp Timestamp at the purchase made
-     * @param data Identifier as an evidence of the purchase (e.g. btc:1xyzxyz)
-     * @param bonusTier bonus milestones of the purchase
      */
     function recordPurchase(
         address purchaser,
         uint256 rawAmount,
-        uint256 timestamp,
-        string data,
-        uint256 bonusTier
+        uint256 timestamp
     )
         internal
         returns(uint256 amount)
@@ -594,10 +557,10 @@ contract StarbaseCrowdsale is Ownable {
 
         // presale transfers which occurs before the crowdsale ignores the crowdsale hard cap
         if (block.number >= purchaseStartBlock) {
+            require(totalAmountOfCrowdsalePurchasesWithoutBonus() < maxCrowdsaleCap);   // check if the amount has already reached the cap
 
-            assert(totalAmountOfCrowdsalePurchasesWithoutBonus() <= maxCrowdsaleCap);
-
-            uint256 crowdsaleTotalAmountAfterPurchase = SafeMath.add(totalAmountOfCrowdsalePurchasesWithoutBonus(), amount);
+            uint256 crowdsaleTotalAmountAfterPurchase =
+                SafeMath.add(totalAmountOfCrowdsalePurchasesWithoutBonus(), amount);
 
             // check whether purchase goes over the cap and send the difference back to the purchaser.
             if (crowdsaleTotalAmountAfterPurchase > maxCrowdsaleCap) {
@@ -610,46 +573,77 @@ contract StarbaseCrowdsale is Ownable {
 
         }
 
-        uint256 covertedAmountwWithBonus = SafeMath.mul(amount, bonusTier) / 100;
-        amount = SafeMath.add(amount, covertedAmountwWithBonus); // at this point amount bonus is calculated
+        amount = getBonusAmountCalculation(amount); // at this point amount bonus is calculated
 
-        CrowdsalePurchase memory purchase = CrowdsalePurchase(purchaser, amount, rawAmount, timestamp, data, bonusTier);
+        CrowdsalePurchase memory purchase = CrowdsalePurchase(purchaser, amount, rawAmount, timestamp);
         crowdsalePurchases.push(purchase);
+        StarbasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate);
         crowdsalePurchaseAmountBy[purchaser] = SafeMath.add(crowdsalePurchaseAmountBy[purchaser], amount);
         return amount;
     }
 
     /**
+     * @dev Calculates amount with bonus for bonus milestones
+     */
+    function calculateBonus
+        (
+            BonusMilestones nextMilestone,
+            uint256 amount,
+            uint256 bonusRange,
+            uint256 bonusTier,
+            uint256 results
+        )
+        internal
+        returns (uint256 result, uint256 newAmount)
+    {
+        uint256 bonusCalc;
+
+        if (amount <= bonusRange) {
+            bonusCalc = amount.mul(bonusTier).div(100);
+
+            if (amount.add(totalAmountOfCrowdsalePurchasesWithoutBonus()) >= bonusRange)
+                bonusMilestones = nextMilestone;
+
+            result = results.add(amount).add(bonusCalc);
+            newAmount = 0;
+
+        } else {
+            bonusCalc = bonusRange.mul(bonusTier).div(100);
+            bonusMilestones = nextMilestone;
+            result = results.add(bonusRange).add(bonusCalc);
+            newAmount = amount.sub(bonusRange);
+        }
+    }
+
+    /**
      * @dev Fetchs Bonus tier percentage per bonus milestones
      */
-    function getBonusTier() internal returns (uint256) {
-        bool firstBonusSalesPeriod = now >= startDate && now <= firstBonusSalesEnds; // 1st ~ 7th day get 20% bonus
-        bool secondBonusSalesPeriod = now > firstBonusSalesEnds && now <= secondBonusSalesEnds; // 8th ~ 21st day get 15% bonus
-        bool thirdBonusSalesPeriod = now > secondBonusSalesEnds && now <= thirdBonusSalesEnds; // 22nd ~ 35th day get 10% bonus
-        bool fourthBonusSalesPeriod = now > thirdBonusSalesEnds && now <= fourthBonusSalesEnds; // 36th ~ 42nd day get 5% bonus
-        bool fifthBonusSalesPeriod = now > fourthBonusSalesEnds && now <= fifthBonusSalesEnds; // 43rd and 45th day get 0% bonus
-
-        // extended bonus sales
-        bool firstExtendedBonusSalesPeriod = now > fifthBonusSalesEnds && now <= firstExtendedBonusSalesEnds; // extended sales 46th ~ 48th day get 20% bonus
-        bool secondExtendedBonusSalesPeriod = now > firstExtendedBonusSalesEnds && now <= secondExtendedBonusSalesEnds; // 49th ~ 51st 15% bonus
-        bool thirdExtendedBonusSalesPeriod = now > secondExtendedBonusSalesEnds && now <= thirdExtendedBonusSalesEnds; // 52nd ~ 54th day get 10% bonus
-        bool fourthExtendedBonusSalesPeriod = now > thirdExtendedBonusSalesEnds && now <= fourthExtendedBonusSalesEnds; // 55th ~ 57th day day get 5% bonus
-        bool fifthExtendedBonusSalesPeriod = now > fourthExtendedBonusSalesEnds && now <= fifthExtendedBonusSalesEnds; // 58th ~ 60th day get 0% bonus
-        bool sixthExtendedBonusSalesPeriod = now > fifthExtendedBonusSalesEnds && now <= sixthExtendedBonusSalesEnds; // 61st ~ 120th day get {number_of_days} - 60 * 1% bonus
-
-        if (firstBonusSalesPeriod || firstExtendedBonusSalesPeriod) return 20;
-        if (secondBonusSalesPeriod || secondExtendedBonusSalesPeriod) return 15;
-        if (thirdBonusSalesPeriod || thirdExtendedBonusSalesPeriod) return 10;
-        if (fourthBonusSalesPeriod || fourthExtendedBonusSalesPeriod) return 5;
-        if (fifthBonusSalesPeriod || fifthExtendedBonusSalesPeriod) return 0;
-
-        if (sixthExtendedBonusSalesPeriod) {
-          uint256 DAY_IN_SECONDS = 86400;
-          uint256 secondsSinceStartDate = SafeMath.sub(now, startDate);
-          uint256 numberOfDays = secondsSinceStartDate / DAY_IN_SECONDS;
-
-          return SafeMath.sub(numberOfDays, 60);
+    function getBonusAmountCalculation(uint256 amount) internal returns (uint256) {
+        if (block.number < purchaseStartBlock) {
+            uint256 bonusFromAmount = amount.mul(30).div(100); // presale has 30% bonus
+            return amount.add(bonusFromAmount);
         }
+
+        // range of each bonus milestones
+        uint256 firstBonusRange = firstBonusEnds;
+        uint256 secondBonusRange = secondBonusEnds.sub(firstBonusEnds);
+        uint256 thirdBonusRange = thirdBonusEnds.sub(secondBonusEnds);
+        uint256 fourthBonusRange = fourthBonusEnds.sub(thirdBonusEnds);
+        uint256 result;
+
+        if (bonusMilestones == BonusMilestones.First)
+            (result, amount) = calculateBonus(BonusMilestones.Second, amount, firstBonusRange, 20, result);
+
+        if (bonusMilestones == BonusMilestones.Second)
+            (result, amount) = calculateBonus(BonusMilestones.Third, amount, secondBonusRange, 15, result);
+
+        if (bonusMilestones == BonusMilestones.Third)
+            (result, amount) = calculateBonus(BonusMilestones.Fourth, amount, thirdBonusRange, 10, result);
+
+        if (bonusMilestones == BonusMilestones.Fourth)
+            (result, amount) = calculateBonus(BonusMilestones.Fifth, amount, fourthBonusRange, 5, result);
+
+        return result.add(amount);
     }
 
     /**
