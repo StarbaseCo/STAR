@@ -32,6 +32,7 @@
     "solc": "^0.4.15",
     "truffle": "^3.4.8",
     "truffle-config": "^1.0.0",
+    "truffle-contract": "^3.0.0",
     "truffle-expect": "0.0.3",
     "zeppelin-solidity": "^1.2.0"
   }

@@ -12,7 +12,11 @@ contract('StarbaseEarlyPurchase', accounts => {
   const account1 = eth.accounts[1]
   const account2 = eth.accounts[2]
   const company  = eth.accounts[3]
-
+  const secondsInADay = 86400
+  const firstBonusEnds =  360000
+  const secondBonusEnds = 720000
+  const thirdBonusEnds =  980000
+  const fourthBonusEnds = 1340000
   const newEP = () => StarbaseEarlyPurchase.new()
   const currentTimestamp = () => Math.floor(Date.now() / 1000)
 
@@ -103,13 +107,17 @@ contract('StarbaseEarlyPurchase', accounts => {
     const mkgCampaign = await StarbaseMarketingCampaign.new()
     const token = await StarbaseToken.new(company, cs.address, mkgCampaign.address)
     await cs.setup(token.address, web3.eth.blockNumber)
-    await cs.updateCnyBtcRate(20000)
-    await cs.recordOffchainPurchase(account2, 0, utils.getBlockNow(), 'btc:xxx') // starts the crowdsale
+    await cs.setQualifiedPartner(account2, 2000000e+18, 0)
+    await cs.updateCnyEthRate(2000)
+    await cs.purchaseWithEth({ from: account2, value: 1 })  // starts the crowdsale
+
     try {
       await ep.appendEarlyPurchase(account1, 10000, currentTimestamp())
+      assert.fail()
     } catch (e) {
       utils.ensuresException(e)
     }
+
     assert.equal((await ep.numberOfEarlyPurchases.call()).toNumber(), 1)
   })
 

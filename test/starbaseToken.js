@@ -20,6 +20,12 @@ contract('StarbaseToken', accounts => {
   const cs1 = eth.accounts[5]
   const someone = eth.accounts[6]
 
+  const secondsInADay = 86400
+  const firstBonusEnds =  360000
+  const secondBonusEnds = 720000
+  const thirdBonusEnds =  980000
+  const fourthBonusEnds = 1340000
+
   let crowdsale
   let mkgCampaign
   let earlyPurchase
@@ -524,6 +530,7 @@ contract('StarbaseToken', accounts => {
     await cs.loadEarlyPurchases()
     await timer(2) // wait a couple of secs
     await cs.updateCnyEthRate(2000)
+    await cs.setQualifiedPartner(cs1, 2000000e+18, 0)
     await cs.purchaseWithEth({ from: cs1, value: 1e+18 })
 
     const now = utils.getBlockNow() // base timestamp off the blockchain
@@ -545,6 +552,7 @@ contract('StarbaseToken', accounts => {
     await cs.loadEarlyPurchases()
     await timer(2) // wait a couple of secs
     await cs.updateCnyEthRate(2000)
+    await cs.setQualifiedPartner(cs1, 2000000e+18, 0)
     await cs.purchaseWithEth({ from: cs1, value: 1e+18 })
 
     const now = utils.getBlockNow() // base timestamp off the blockchain
@@ -570,6 +578,8 @@ contract('StarbaseToken', accounts => {
     await cs.loadEarlyPurchases()
     await timer(2) // wait a couple of secs
     await cs.updateCnyEthRate(2000)
+    await cs.setQualifiedPartner(ep1, 2000000e+18, 0)
+    await cs.setQualifiedPartner(cs1, 2000000e+18, 0)
     await cs.purchaseWithEth({ from: ep1, value: 1e+18 })
     await cs.purchaseWithEth({ from: cs1, value: 1e+18 })
     await cs.endCrowdsale(utils.getBlockNow() - (86400 * 14) + 10)  // less than 14 days ago
@@ -607,6 +617,8 @@ contract('StarbaseToken', accounts => {
     await cs.loadEarlyPurchases()
     await timer(2) // wait a couple of secs
     await cs.updateCnyEthRate(2000)
+    await cs.setQualifiedPartner(ep1, 2000000e+18, 0)
+    await cs.setQualifiedPartner(cs1, 2000000e+18, 0)
     await cs.purchaseWithEth({ from: ep1, value: 1e+18 })
     await cs.purchaseWithEth({ from: cs1, value: 1e+18 })
     await cs.endCrowdsale(utils.getBlockNow() - (86400 * 14))  // 14 days ago
@@ -701,6 +713,7 @@ contract('StarbaseToken', accounts => {
       await cs.loadEarlyPurchases()
       await timer(2) // wait a couple of secs
       await cs.updateCnyEthRate(2000)
+      await cs.setQualifiedPartner(ec1, 2000000e+18, 0)
       await cs.purchaseWithEth({ from: ec1, value: 1e+18 })
       await cs.endCrowdsale(utils.getBlockNow() - 7 * 86400)  // a week ago
 
