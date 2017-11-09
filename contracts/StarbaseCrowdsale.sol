@@ -80,11 +80,13 @@ contract StarbaseCrowdsale is Ownable {
     address[] public earlyPurchasers;
     mapping (address => uint256) public earlyPurchasedAmountBy; // early purchased amount in CNY per purchasers' address
     bool public earlyPurchasesLoaded = false;  // returns whether all early purchases are loaded into this contract
-    uint256 public totalAmountOfEarlyPurchasesInCny;
+    uint256 public totalAmountOfEarlyPurchases; // including 20% bonus
 
     // crowdsale
+    bool public presalePurchasesLoaded = false; // returns whether all presale purchases are loaded into this contract
     uint256 public maxCrowdsaleCap;     // = 67M CNY - (total raised amount from EP)
-    uint256 public totalAmountOfPurchasesInCny; // totalPreSale + totalCrowdsale
+    uint256 public totalAmountOfCrowdsalePurchases; // in CNY, including bonuses
+    uint256 public totalAmountOfCrowdsalePurchasesWithoutBonus; // in CNY
     mapping (address => QualifiedPartners) public qualifiedPartners;
     uint256 public purchaseStartBlock;  // crowdsale purchases can be accepted from this block number
     uint256 public startDate;
@@ -110,6 +112,11 @@ contract StarbaseCrowdsale is Ownable {
     modifier minInvestment() {
         // User has to send at least the ether value of one token.
         assert(msg.value >= MIN_INVESTMENT);
+        _;
+    }
+
+    modifier whenNotStarted() {
+        assert(startDate == 0);
         _;
     }
 
@@ -197,10 +204,8 @@ contract StarbaseCrowdsale is Ownable {
         starbaseToken = AbstractStarbaseToken(starbaseTokenAddress);
         purchaseStartBlock = _purchaseStartBlock;
 
-        totalAmountOfEarlyPurchasesInCny = totalAmountOfEarlyPurchases();
-
         // set the max cap of this crowdsale
-        maxCrowdsaleCap = MAX_CAP.sub(totalAmountOfEarlyPurchasesInCny);
+        maxCrowdsaleCap = MAX_CAP.sub(totalAmountOfEarlyPurchasesWithoutBonus());
 
         assert(maxCrowdsaleCap > 0);
 
@@ -218,6 +223,19 @@ contract StarbaseCrowdsale is Ownable {
         address company = starbaseToken.company();
         require(company != address(0));
         company.transfer(this.balance);
+    }
+
+    /**
+     * @dev Update start block Number for the crowdsale
+     */
+    function updatePurchaseStartBlock(uint256 _purchaseStartBlock)
+        external
+        whenNotStarted
+        onlyFundraiser
+        returns (bool)
+    {
+        purchaseStartBlock = _purchaseStartBlock;
+        return true;
     }
 
     /**
@@ -251,14 +269,16 @@ contract StarbaseCrowdsale is Ownable {
      */
     function ownerStartsCrowdsale(uint256 timestamp)
         external
+        whenNotStarted
         onlyOwner
     {
-        assert(startDate == 0 && block.number >= purchaseStartBlock);   // overwriting startDate is not permitted and it should be after the crowdsale start block
+        assert(block.number >= purchaseStartBlock);   // this should be after the crowdsale start block
         startCrowdsale(timestamp);
     }
 
     /**
      * @dev Ends crowdsale
+     *      This may be executed by an owner if the raised funds did not reach the map cap
      * @param timestamp Timestamp at the crowdsale ended
      */
     function endCrowdsale(uint256 timestamp)
@@ -266,10 +286,18 @@ contract StarbaseCrowdsale is Ownable {
         onlyOwner
     {
         assert(timestamp > 0 && timestamp <= now);
-        assert(block.number > purchaseStartBlock && endedAt == 0);   // cannot end before it starts and overwriting time is not permitted
+        assert(block.number >= purchaseStartBlock && endedAt == 0);   // cannot end before it starts and overwriting time is not permitted
         endedAt = timestamp;
-        totalAmountOfEarlyPurchasesInCny = totalAmountOfEarlyPurchases();
-        totalAmountOfPurchasesInCny = totalRaisedAmountInCny();
+        CrowdsaleEnded(endedAt);
+    }
+
+    /**
+     * @dev Ends crowdsale
+     *      This may be executed by purchaseWithEth when the raised funds reach the map cap
+     */
+    function endCrowdsale() internal {
+        assert(block.number >= purchaseStartBlock && endedAt == 0);
+        endedAt = now;
         CrowdsaleEnded(endedAt);
     }
 
@@ -301,7 +329,7 @@ contract StarbaseCrowdsale is Ownable {
 
             uint256 tokenCount =
                 SafeMath.mul(crowdsaleTokenAmount, crowdsalePurchaseValue) /
-                totalAmountOfPurchasesInCny;
+                totalRaisedAmountInCny();
 
             numOfPurchasedTokensOnCsBy[msg.sender] =
                 SafeMath.add(numOfPurchasedTokensOnCsBy[msg.sender], tokenCount);
@@ -326,9 +354,9 @@ contract StarbaseCrowdsale is Ownable {
             uint256 earlyPurchaserPurchaseValue = earlyPurchasedAmountBy[msg.sender];
             earlyPurchasedAmountBy[msg.sender] = 0;
 
-            uint256 epTokenCalculationFromEPTokenAmount = SafeMath.mul(earlyPurchaseTokenAmount, earlyPurchaserPurchaseValue) / totalAmountOfEarlyPurchasesInCny;
+            uint256 epTokenCalculationFromEPTokenAmount = SafeMath.mul(earlyPurchaseTokenAmount, earlyPurchaserPurchaseValue) / totalAmountOfEarlyPurchases;
 
-            uint256 epTokenCalculationFromCrowdsaleTokenAmount = SafeMath.mul(crowdsaleTokenAmount, earlyPurchaserPurchaseValue) / totalAmountOfPurchasesInCny;
+            uint256 epTokenCalculationFromCrowdsaleTokenAmount = SafeMath.mul(crowdsaleTokenAmount, earlyPurchaserPurchaseValue) / totalRaisedAmountInCny();
 
             uint256 epTokenCount = SafeMath.add(epTokenCalculationFromEPTokenAmount, epTokenCalculationFromCrowdsaleTokenAmount);
 
@@ -370,6 +398,7 @@ contract StarbaseCrowdsale is Ownable {
                 uint256 amountWithBonus = SafeMath.add(amount, bonus);
 
                 earlyPurchasedAmountBy[purchaser] = SafeMath.add(earlyPurchasedAmountBy[purchaser], amountWithBonus);
+                totalAmountOfEarlyPurchases = totalAmountOfEarlyPurchases.add(amountWithBonus);
             }
 
             numOfLoadedEarlyPurchases = SafeMath.add(numOfLoadedEarlyPurchases, 1);
@@ -380,6 +409,31 @@ contract StarbaseCrowdsale is Ownable {
             earlyPurchasesLoaded = true;    // enable the flag
         }
         return true;
+    }
+
+    /**
+     * @dev Load presale purchases from the contract keeps track of them
+     * @param starbaseCrowdsalePresale Starbase presale contract address
+     */
+    function loadPresalePurchases(address starbaseCrowdsalePresale)
+        external
+        onlyOwner
+        whenNotEnded
+    {
+        require(starbaseCrowdsalePresale != 0);
+        require(!presalePurchasesLoaded);
+        StarbaseCrowdsale presale = StarbaseCrowdsale(starbaseCrowdsalePresale);
+        for (uint i; i < presale.numOfPurchases(); i++) {
+            var (purchaser, amount, rawAmount, purchasedAt) =
+                presale.crowdsalePurchases(i);  // presale purchase
+            crowdsalePurchases.push(CrowdsalePurchase(purchaser, amount, rawAmount, purchasedAt));
+
+            // Increase the sums
+            crowdsalePurchaseAmountBy[purchaser] = SafeMath.add(crowdsalePurchaseAmountBy[purchaser], amount);
+            totalAmountOfCrowdsalePurchases = totalAmountOfCrowdsalePurchases.add(amount);
+            totalAmountOfCrowdsalePurchasesWithoutBonus = totalAmountOfCrowdsalePurchasesWithoutBonus.add(rawAmount);
+        }
+        presalePurchasesLoaded = true;
     }
 
     /**
@@ -437,34 +491,23 @@ contract StarbaseCrowdsale is Ownable {
     }
 
     /**
-     * @dev Calculates total amount of tokens purchased includes bonus tokens.
-     */
-    function totalAmountOfCrowdsalePurchases() constant public returns (uint256 amount) {
-        for (uint256 i; i < crowdsalePurchases.length; i++) {
-            amount = SafeMath.add(amount, crowdsalePurchases[i].amount);
-        }
-    }
-
-    /**
-     * @dev Calculates total amount of tokens purchased without bonus conversion.
-     */
-    function totalAmountOfCrowdsalePurchasesWithoutBonus() constant public returns (uint256 amount) {
-        for (uint256 i; i < crowdsalePurchases.length; i++) {
-            amount = SafeMath.add(amount, crowdsalePurchases[i].rawAmount);
-        }
-    }
-
-    /**
      * @dev Returns total raised amount in CNY (includes EP) and bonuses
      */
     function totalRaisedAmountInCny() constant public returns (uint256) {
-        return SafeMath.add(totalAmountOfEarlyPurchases(), totalAmountOfCrowdsalePurchases());
+        return totalAmountOfEarlyPurchases.add(totalAmountOfCrowdsalePurchases);
+    }
+
+    /**
+     * @dev Returns total amount of early purchases in CNY and bonuses
+     */
+    function totalAmountOfEarlyPurchasesWithBonus() constant public returns(uint256) {
+       return starbaseEpAmendment.totalAmountOfEarlyPurchases().mul(120).div(100);
     }
 
     /**
      * @dev Returns total amount of early purchases in CNY
      */
-    function totalAmountOfEarlyPurchases() constant public returns(uint256) {
+    function totalAmountOfEarlyPurchasesWithoutBonus() constant public returns(uint256) {
        return starbaseEpAmendment.totalAmountOfEarlyPurchases();
     }
 
@@ -514,6 +557,10 @@ contract StarbaseCrowdsale is Ownable {
         uint256 rawAmount = SafeMath.mul(msg.value, cnyEthRate) / 1e18;
         recordPurchase(msg.sender, rawAmount, now);
 
+        if (totalAmountOfCrowdsalePurchasesWithoutBonus >= maxCrowdsaleCap) {
+            endCrowdsale(); // ends this crowdsale automatically
+        }
+
         return true;
     }
 
@@ -526,7 +573,7 @@ contract StarbaseCrowdsale is Ownable {
      */
     function startCrowdsale(uint256 timestamp) internal {
         startDate = timestamp;
-        uint256 presaleAmount = totalAmountOfCrowdsalePurchasesWithoutBonus();
+        uint256 presaleAmount = totalAmountOfCrowdsalePurchasesWithoutBonus;
         if (maxCrowdsaleCap > presaleAmount) {
             uint256 mainSaleCap = maxCrowdsaleCap.sub(presaleAmount);
             uint256 twentyPercentOfCrowdsalePurchase = mainSaleCap.mul(20).div(100);
@@ -557,10 +604,10 @@ contract StarbaseCrowdsale is Ownable {
 
         // presale transfers which occurs before the crowdsale ignores the crowdsale hard cap
         if (block.number >= purchaseStartBlock) {
-            require(totalAmountOfCrowdsalePurchasesWithoutBonus() < maxCrowdsaleCap);   // check if the amount has already reached the cap
+            require(totalAmountOfCrowdsalePurchasesWithoutBonus < maxCrowdsaleCap);   // check if the amount has already reached the cap
 
             uint256 crowdsaleTotalAmountAfterPurchase =
-                SafeMath.add(totalAmountOfCrowdsalePurchasesWithoutBonus(), amount);
+                SafeMath.add(totalAmountOfCrowdsalePurchasesWithoutBonus, amount);
 
             // check whether purchase goes over the cap and send the difference back to the purchaser.
             if (crowdsaleTotalAmountAfterPurchase > maxCrowdsaleCap) {
@@ -570,7 +617,6 @@ contract StarbaseCrowdsale is Ownable {
               amount = SafeMath.sub(amount, difference);
               rawAmount = amount;
             }
-
         }
 
         amount = getBonusAmountCalculation(amount); // at this point amount bonus is calculated
@@ -579,6 +625,8 @@ contract StarbaseCrowdsale is Ownable {
         crowdsalePurchases.push(purchase);
         StarbasePurchasedWithEth(msg.sender, amount, rawAmount, cnyEthRate);
         crowdsalePurchaseAmountBy[purchaser] = SafeMath.add(crowdsalePurchaseAmountBy[purchaser], amount);
+        totalAmountOfCrowdsalePurchases = totalAmountOfCrowdsalePurchases.add(amount);
+        totalAmountOfCrowdsalePurchasesWithoutBonus = totalAmountOfCrowdsalePurchasesWithoutBonus.add(rawAmount);
         return amount;
     }
 
@@ -601,7 +649,7 @@ contract StarbaseCrowdsale is Ownable {
         if (amount <= bonusRange) {
             bonusCalc = amount.mul(bonusTier).div(100);
 
-            if (amount.add(totalAmountOfCrowdsalePurchasesWithoutBonus()) >= bonusRange)
+            if (amount.add(totalAmountOfCrowdsalePurchasesWithoutBonus) >= bonusRange)
                 bonusMilestones = nextMilestone;
 
             result = results.add(amount).add(bonusCalc);

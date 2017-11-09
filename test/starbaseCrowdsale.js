@@ -18,6 +18,8 @@ contract('StarbaseCrowdsale', accounts => {
   const addressA = accounts[5]
   const addressB = accounts[6]
   const addressC = accounts[7]
+  const presale1 = accounts[8]
+  const presale2 = accounts[9]
   const totalAmountOfEP = 6000000;
 
   let mkgCampaign
@@ -131,6 +133,46 @@ contract('StarbaseCrowdsale', accounts => {
 
   })
 
+  it('should NOT permit other addresses to update purchase start block', async () => {
+    const purchaseStartBlock = await cs.purchaseStartBlock()
+
+    try {
+      await cs.updatePurchaseStartBlock.sendTransaction(web3.eth.blockNumber + 150, { from: purchaser1 })
+      assert.fail()
+    } catch (error) {
+      utils.ensuresException(error)
+    }
+    const currentPurchaseStartBlock = await cs.purchaseStartBlock()
+
+    assert.equal(currentPurchaseStartBlock.toNumber(), purchaseStartBlock.toNumber())
+  })
+
+  it('should NOT allow the update of purchase start block if the crowdsale is afoot', async () => {
+    const purchaseStartBlock = await cs.purchaseStartBlock()
+    await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
+    await cs.updateCnyEthRate(1000)
+    await cs.purchaseWithEth({ from: purchaser1, value: 1e+18 })
+
+    try {
+      await cs.updatePurchaseStartBlock.sendTransaction(web3.eth.blockNumber + 150, { from: founder1 })
+      assert.fail()
+    } catch (error) {
+      utils.ensuresException(error)
+    }
+    const currentPurchaseStartBlock = await cs.purchaseStartBlock()
+
+    assert.equal(currentPurchaseStartBlock.toNumber(), purchaseStartBlock.toNumber())
+  })
+
+  it('should allow contract owner to update purchase start block', async () => {
+    const purchaseStartBlock = await cs.purchaseStartBlock()
+    await cs.updatePurchaseStartBlock.sendTransaction(purchaseStartBlock.toNumber() + 150, { from: founder1 })
+
+    const newPurchaseStartBlock = await cs.purchaseStartBlock()
+    assert.isAbove(newPurchaseStartBlock.toNumber(), purchaseStartBlock.toNumber())
+    assert.equal(newPurchaseStartBlock.toNumber(), purchaseStartBlock.toNumber() + 150)
+  })
+
   it('should NOT permit other addresses to set cny btc rate', async () => {
     try {
       await cs.updateCnyEthRate.sendTransaction(124, { from: purchaser1 })
@@ -153,6 +195,28 @@ contract('StarbaseCrowdsale', accounts => {
     assert.strictEqual(logs.length, 1, 'should have received 1 event')
 
     assert.strictEqual(logs[0].args.cnyBtcRate.toNumber(), 123, "should be 123")
+  })
+
+  describe('presale purchases', () => {
+    it('should be loaded from another contract', async () => {
+      const presale = await newCrowdsale()
+      token = await newToken(presale.address)
+      await presale.setup(token.address, web3.eth.blockNumber + 20) // future block
+      await presale.setQualifiedPartner(presale1, 1e+18, 0)
+      await presale.setQualifiedPartner(presale2, 1e+18, 5)
+      await presale.updateCnyEthRate(100000)
+      await presale.sendTransaction({ from: presale1, value: 1e+15 })
+      await presale.sendTransaction({ from: presale1, value: 1e+15 })
+      await presale.sendTransaction({ from: presale2, value: 3e+15 })
+
+      cs = await newCrowdsale()
+      await cs.loadPresalePurchases(presale.address)
+      assert.equal((await cs.numOfPurchases()).toNumber(), 3)
+      assert.equal((await cs.totalAmountOfCrowdsalePurchases()).toNumber(), 650)
+      assert.equal((await cs.totalAmountOfCrowdsalePurchasesWithoutBonus()).toNumber(), 500)
+      assert.equal((await cs.crowdsalePurchaseAmountBy(presale1)).toNumber(), 260)
+      assert.equal((await cs.crowdsalePurchaseAmountBy(presale2)).toNumber(), 390)
+    })
   })
 
   describe('qualified Partner', () => {
@@ -530,9 +594,50 @@ contract('StarbaseCrowdsale', accounts => {
       assert.equal(events.length, 1)
       assert.equal(events[0].args.endedAt, now)
     })
+
+    it('should be ended by a purchase which reaches the max cap', async () => {
+      const cs = await newCrowdsale()
+      const token = await newToken(cs.address)
+      await cs.setup(token.address, web3.eth.blockNumber)
+      await cs.updateCnyEthRate(67000000) // = crowdsale cap
+      await cs.setQualifiedPartner(purchaser1, 1e+18, 0)
+      await cs.sendTransaction({ from: purchaser1, value: 1e+18 })  // main sale
+      assert.equal((await cs.endedAt.call()).toNumber(), utils.getBlockNow())
+    })
   })
-  //
+
   describe('delivery of tokens', () => {
+    it('delivers right amout of STARs for crowdsale and early purchasers', async () => {
+      const now = utils.getBlockNow()
+      const ep = await StarbaseEarlyPurchase.new()
+      await ep.appendEarlyPurchase(purchaser1, 3500000, now)
+      await ep.appendEarlyPurchase(purchaser2, 3500000, now)
+      await ep.closeEarlyPurchase()
+      const epa = await StarbaseEarlyPurchaseAmendment.new()
+      await epa.loadStarbaseEarlyPurchases(ep.address)
+
+      const cs = await newCrowdsale(epa)
+      await cs.loadEarlyPurchases()
+      assert.equal((await cs.earlyPurchasedAmountBy(purchaser1)).toNumber(), 4200000) // 3500000 + 700000 (20% bonus)
+      assert.equal((await cs.earlyPurchasedAmountBy(purchaser2)).toNumber(), 4200000) // 3500000 + 700000 (20% bonus)
+
+      const token = await newToken(cs.address)
+      await cs.setup(token.address, web3.eth.blockNumber)
+      await cs.updateCnyEthRate(60000000)
+      await cs.setQualifiedPartner(purchaser3, 1e+18, 0)
+      await cs.sendTransaction({ from: purchaser3, value: 1e+18 })  // this ends the crowdsale
+      assert((await cs.endedAt()).toNumber() > 0)
+      assert.equal((await cs.crowdsalePurchaseAmountBy(purchaser3)).toNumber(), 66000000)
+
+      await cs.withdrawPurchasedTokens({ from: purchaser3 })
+      await cs.withdrawPurchasedTokens({ from: purchaser2 })
+      await cs.withdrawPurchasedTokens({ from: purchaser1 })
+      assert.equal(
+        (await token.balanceOf(purchaser2)).toString(),
+        (await token.balanceOf(purchaser2)).toString())
+      assert((await token.balanceOf(cs.address)).toNumber() < 1e18) // small reminder
+    })
+
     it('returns the number of purchased tokens by a purchaser upon delivery', async () => {
       const cs = await newCrowdsale()
       await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
@@ -682,10 +787,10 @@ contract('StarbaseCrowdsale', accounts => {
     it('keeps track of the number of delivered early purchases', async () => {
       const now = utils.getBlockNow()
       const ep = await StarbaseEarlyPurchase.new()
-      await ep.appendEarlyPurchase(purchaser1, 2, now)
-      await ep.appendEarlyPurchase(purchaser2, 1, now)
-      await ep.appendEarlyPurchase(founder1, 1, now)
-      await ep.appendEarlyPurchase(addressA, 1, now)
+      await ep.appendEarlyPurchase(purchaser1, 200, now)
+      await ep.appendEarlyPurchase(purchaser2, 100, now)
+      await ep.appendEarlyPurchase(founder1, 100, now)
+      await ep.appendEarlyPurchase(addressA, 100, now)
 
       await ep.closeEarlyPurchase()
       const epa = await StarbaseEarlyPurchaseAmendment.new()
@@ -797,9 +902,11 @@ contract('StarbaseCrowdsale', accounts => {
       const now = utils.getBlockNow()
       const ep = await StarbaseEarlyPurchase.new()
 
-      for (let ePurchaser = 0; ePurchaser < 171; ePurchaser++) {
-          await ep.appendEarlyPurchase(accounts[ePurchaser], 1, now)
-      }
+      await Promise.all(
+        [...Array(171).keys()].map(i =>
+          ep.appendEarlyPurchase(accounts[i], 1, now)
+        )
+      )
 
       await ep.closeEarlyPurchase()
       const epa = await StarbaseEarlyPurchaseAmendment.new()
@@ -812,7 +919,7 @@ contract('StarbaseCrowdsale', accounts => {
 
       }
 
-      assert.equal((await cs.numOfLoadedEarlyPurchases.call()).toNumber(), 79) // index when gas ran out in the loadEarlyPurchases function.
+      assert.equal((await cs.numOfLoadedEarlyPurchases.call()).toNumber(), 72) // index when gas ran out in the loadEarlyPurchases function.
       assert.equal((await cs.earlyPurchasers(30)), accounts[30])
       assert.equal((await cs.earlyPurchasedAmountBy.call(accounts[30])).toNumber(), 1)
 
@@ -828,6 +935,17 @@ contract('StarbaseCrowdsale', accounts => {
       assert.equal((await cs.earlyPurchasers(120)), accounts[120])
       assert.equal((await cs.earlyPurchasedAmountBy.call(accounts[90])).toNumber(), 1)
       assert.equal((await cs.earlyPurchasedAmountBy.call(accounts[120])).toNumber(), 1)
+
+      await cs.setup(token.address, web3.eth.blockNumber)
+      await cs.updateCnyEthRate(2000)
+      await cs.setQualifiedPartner(purchaser1, 1e+18, 0)
+      await Promise.all(
+        [...Array(100).keys()].map(() =>
+          cs.sendTransaction({ from: purchaser1, value: 1e+15 })
+        )
+      )
+      await cs.endCrowdsale(utils.getBlockNow())
+      assert(web3.eth.getBlock('latest').gasUsed < 50000)
     })
   })
 

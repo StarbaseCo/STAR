@@ -38,10 +38,11 @@ contract('StarbaseCrowdsale (Bonus Milestones)', accounts => {
 
   beforeEach('initialize crowdsale contract', async () => {
     cs = await newCrowdsale()
+    await cs.loadEarlyPurchases()
+    totalAmountOfEP = await cs.totalAmountOfEarlyPurchasesWithBonus()
+
     const mkgCampaign = await StarbaseMarketingCampaign.new(dummyAddr)
     const token = await StarbaseToken.new(dummyAddr, cs.address, mkgCampaign.address)
-    totalAmountOfEP = await cs.totalAmountOfEarlyPurchases()
-
     await cs.setup(token.address, web3.eth.blockNumber)
     await cs.setQualifiedPartner(purchaser1, 2000000e+18, 0)
   })
