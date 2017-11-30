@@ -117,15 +117,18 @@ contract StarbaseToken is StandardToken {
 
         // Tokens for crowdsale and early purchasers
         balances[address(starbaseCrowdsale)] = initialBalanceForCrowdsale;
+        Transfer(0, address(starbaseCrowdsale), initialBalanceForCrowdsale);
 
         // Tokens for marketing campaign supporters
         balances[address(starbaseMarketingCampaign)] = initialBalanceForMarketingCampaign;
+        Transfer(0, address(starbaseMarketingCampaign), initialBalanceForMarketingCampaign);
 
         // Tokens for early contributors, should be allocated by function
         balances[0] = 62500000e18; // 62.5M
 
         // Starbase company holds untransferrable tokens initially
         balances[starbaseCompanyAddr] = initialCompanysTokenAllocation; // 750M
+        Transfer(0, starbaseCompanyAddr, initialCompanysTokenAllocation);
 
         totalSupply = initialSupply;    // 1B
     }

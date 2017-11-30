@@ -75,18 +75,36 @@ contract('StarbaseToken', accounts => {
     const token = await newToken()
     const balance =  await token.balanceOf.call(company)
     assert.equal(balance.toNumber(), 750000000e+18)
+
+    const event = token.Transfer({ to: company })
+    event.get((error, result) => {
+        assert.equal(result[0].args.to, company)
+        assert.equal(result[0].args.value.toNumber(), 750000000e+18)
+    })
   })
 
   it('should have 17.5M tokens allocated to the crowdsale contract initially', async () => {
     const token = await newToken()
     const balance = await token.balanceOf.call(crowdsale.address)
     assert.equal(balance.toNumber(), 175000000e+18)
+
+    const event = token.Transfer({ to: crowdsale.address })
+    event.get((error, result) => {
+        assert.equal(result[0].args.to, crowdsale.address)
+        assert.equal(result[0].args.value.toNumber(), 175000000e+18)
+    })
   })
 
   it('should have 12.5M tokens allocated to the marketing campaign contract initially', async () => {
     const token = await newToken()
     const balance = await token.balanceOf.call(mkgCampaign.address)
     assert.equal(balance.toNumber(), 12500000e+18)
+
+    const event = token.Transfer({ to: mkgCampaign.address })
+    event.get((error, result) => {
+        assert.equal(result[0].args.to, mkgCampaign.address)
+        assert.equal(result[0].args.value.toNumber(), 12500000e+18)
+    })
   })
 
   it("should have 62.5M tokens to allocate early contributors on address '0' initially", async () => {
