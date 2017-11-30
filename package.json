@@ -20,20 +20,20 @@
   },
   "homepage": "https://github.com/StarbaseCo/StarbaseContracts#readme",
   "dependencies": {
-    "config": "^1.26.2"
+    "config": "^1.28.1"
   },
   "devDependencies": {
     "babel-polyfill": "^6.23.0",
     "babel-preset-es2015": "^6.24.0",
     "babel-preset-es2017": "^6.22.0",
     "babel-register": "^6.24.1",
-    "ethereumjs-testrpc": "^4.0.1",
-    "moment": "^2.18.1",
-    "solc": "^0.4.15",
-    "truffle": "^3.4.8",
-    "truffle-config": "^1.0.0",
-    "truffle-contract": "^3.0.0",
+    "ethereumjs-testrpc": "^4.1.3",
+    "moment": "^2.19.3",
+    "solc": "^0.4.18",
+    "truffle": "^3.4.11",
+    "truffle-config": "^1.0.3",
+    "truffle-contract": "^3.0.1",
     "truffle-expect": "0.0.3",
-    "zeppelin-solidity": "^1.2.0"
+    "zeppelin-solidity": "^1.4.0"
   }
 }
